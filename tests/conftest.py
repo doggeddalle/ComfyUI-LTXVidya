@@ -35,8 +35,22 @@ def _install_comfy_stubs():
     model_management.get_free_memory = lambda device=None: 64 * 2**30
     model_management.soft_empty_cache = lambda *a, **kw: None
     model_management.free_memory = lambda *a, **kw: None
+    model_management.dtype_size = lambda dtype: torch.empty(
+        (), dtype=dtype
+    ).element_size()
+
+    _module("comfy.model_detection")
 
     utils = _module("comfy.utils")
+    utils.load_torch_file = lambda *a, **kw: {}
+
+    # ComfyUI exposes folder_paths as a top-level module.
+    folder_paths = _module("folder_paths")
+    folder_paths.get_full_path = lambda folder, name: None
+    folder_paths.get_full_path_or_raise = lambda folder, name: name
+    folder_paths.get_filename_list = lambda folder: []
+    folder_paths.folder_names_and_paths = {}
+    folder_paths.models_dir = ""
 
     class ProgressBar:
         def __init__(self, total):

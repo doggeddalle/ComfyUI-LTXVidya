@@ -28,10 +28,20 @@ class DynamicConditioning:
         return (model,)
 
     def find_step(self, sigma: torch.Tensor, step_sigmas: torch.Tensor):
-        for i, step_sigma in enumerate(step_sigmas):
-            if step_sigma <= sigma:
+        # Comparing tensors inside a Python loop forces one device->host sync
+        # per candidate, every sampling step. The schedule is constant for a
+        # run, so pull it across once and scan it host-side; only `sigma` still
+        # needs reading each call.
+        key = (step_sigmas.data_ptr(), step_sigmas.numel())
+        if getattr(self, "_step_sigmas_key", None) != key:
+            self._step_sigmas_key = key
+            self._step_sigmas = step_sigmas.detach().flatten().tolist()
+
+        sigma_value = float(sigma.detach().flatten()[0])
+        for i, step_sigma in enumerate(self._step_sigmas):
+            if step_sigma <= sigma_value:
                 return i
-        return len(step_sigmas) - 1
+        return len(self._step_sigmas) - 1
 
     def forward(
         self, sigma: torch.Tensor, denoise_mask: torch.Tensor, extra_options: dict

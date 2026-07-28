@@ -242,7 +242,17 @@ class LTXVGemmaCLIPModelLoader:
     OUTPUT_NODE = False
 
     def load_model(self, gemma_path: str, ltxv_path: str, max_length: int):
-        path = Path(folder_paths.get_full_path("text_encoders", gemma_path))
+        # get_full_path returns None for a missing file, and Path(None) raises
+        # an opaque TypeError -- common when a saved workflow references a model
+        # that has since been renamed or removed.
+        full_path = folder_paths.get_full_path("text_encoders", gemma_path)
+        if full_path is None:
+            raise FileNotFoundError(
+                f"Text encoder {gemma_path!r} was not found in any 'text_encoders' "
+                f"model folder. Check that the file still exists and that the "
+                f"workflow references the current filename."
+            )
+        path = Path(full_path)
         model_root = path.parents[1]
         tokenizer_path = Path(find_matching_dir(model_root, "tokenizer.model"))
         gemma_model_path = Path(find_matching_dir(model_root, "model*.safetensors"))

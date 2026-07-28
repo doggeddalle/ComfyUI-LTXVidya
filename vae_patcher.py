@@ -1,6 +1,7 @@
 from comfy.model_management import dtype_size
 
 from .nodes_registry import comfy_node
+from .q8_nodes import check_q8_available
 
 
 @comfy_node(name="LTXVPatcherVAE")
@@ -19,6 +20,10 @@ class LTXVPatcherVAE:
     TITLE = "LTXV VAE Patcher"
 
     def patch(self, vae):
+        # Without this the bare import below surfaced as a raw
+        # ModuleNotFoundError with no guidance, unlike the other Q8 nodes.
+        check_q8_available()
+
         from q8_kernels.integration.patch_vae import patch_vae
 
         vae_model = vae.first_stage_model

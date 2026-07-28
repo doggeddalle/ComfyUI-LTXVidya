@@ -27,11 +27,33 @@ def list_in_name(check_list, name):
     return any([x in name for x in check_list])
 
 
+# The q8_kernels INT8/FP8 GEMMs are built for Ada (SM 8.9) and newer. On an
+# older card the package may still import and then fail deep inside CUDA with
+# an unhelpful error, so check the device before handing work to it.
+_Q8_MIN_COMPUTE_CAPABILITY = (8, 9)
+
+
 def check_q8_available():
     if not Q8_AVAILABLE:
         raise ImportError(
             "Q8 kernels are not available. To use this feature install the q8_kernels package from here:."
             "https://github.com/Lightricks/LTX-Video-Q8-Kernels"
+        )
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "LTXV Q8 nodes require a CUDA GPU; no CUDA device is available."
+        )
+
+    capability = torch.cuda.get_device_capability()
+    if capability < _Q8_MIN_COMPUTE_CAPABILITY:
+        name = torch.cuda.get_device_name()
+        raise RuntimeError(
+            f"LTXV Q8 nodes require an Ada-generation GPU or newer "
+            f"(compute capability "
+            f"{_Q8_MIN_COMPUTE_CAPABILITY[0]}.{_Q8_MIN_COMPUTE_CAPABILITY[1]}+), "
+            f"but {name} reports {capability[0]}.{capability[1]}. "
+            f"Load the model normally (or as GGUF) instead of using the Q8 path."
         )
 
 
@@ -166,13 +188,18 @@ class LTXVQ8LoraModelLoader:
     FUNCTION = "load_lora_model_only"
 
     def load_lora(self, model, lora_name, strength_model):
+        # Must come first: binding hadamard_transform before this check raised a
+        # bare NameError whenever q8_kernels was missing, which made the helpful
+        # error below unreachable.
+        check_q8_available()
+
         quant_fn = hadamard_transform
         transformer = model.get_model_object("diffusion_model")
 
         is_patched_transformer = getattr(transformer, "is_q8_patched", False)
-        if not is_patched_transformer or not Q8_AVAILABLE:
+        if not is_patched_transformer:
             raise ValueError(
-                "LTXV Q8 Patcher is not applied to the model. Please use LTXQ8Patch node before loading lora or install q8_kernels."
+                "LTXV Q8 Patcher is not applied to the model. Please use LTXQ8Patch node before loading lora."
             )
 
         if strength_model == 0:
@@ -195,7 +222,10 @@ class LTXVQ8LoraModelLoader:
             if lora[k].ndim == 2:
                 if "lora_A" in k and not list_in_name(skip_list, k):
                     new_lora[k] = quant_fn(
-                        lora[k].to(device="cuda", dtype=torch.bfloat16),
+                        lora[k].to(
+                            device=comfy.model_management.get_torch_device(),
+                            dtype=torch.bfloat16,
+                        ),
                         out_type=torch.bfloat16,
                     ).to(device)
                 else:

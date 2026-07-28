@@ -1,6 +1,5 @@
-diffusers
-einops
+einops>=0.6.0
 huggingface_hub>=0.25.2
-kornia
+kornia>=0.7.0
 ninja~=1.11.1.4
 transformers[timm]>=4.50.0

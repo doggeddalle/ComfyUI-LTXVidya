@@ -8,6 +8,7 @@ import ast
 import copy
 import importlib.util
 import pathlib
+import re
 import sys
 import types
 
@@ -388,6 +389,128 @@ def test_batched_quantile_matches_torch_quantile():
 
     expected = torch.quantile(flat, q, dim=-1)
     assert torch.allclose(latent_norm._batched_quantile(flat, q), expected, atol=1e-6)
+
+
+def test_apg_project_does_not_use_float64():
+    """Consumer Ampere runs fp64 at 1/64 rate; fp32 is enough for this projection."""
+    stg = _load("ltxpkg.stg", "stg.py")
+    source = (REPO / "stg.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    project = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "project"
+    )
+    calls = {
+        node.func.attr
+        for node in ast.walk(project)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert "double" not in calls
+
+    v0 = torch.randn(1, 4, 6, 8)
+    v1 = torch.randn(1, 4, 6, 8)
+    parallel, orthogonal = stg.project(v0, v1)
+    # The decomposition must still reconstruct the input and be orthogonal.
+    assert torch.allclose(parallel + orthogonal, v0, atol=1e-4)
+    assert (parallel * orthogonal).sum().abs() < 1e-2
+
+
+def test_apg_project_preserves_input_dtype():
+    stg = _load("ltxpkg.stg", "stg.py")
+    v0 = torch.randn(1, 4, 4, 4, dtype=torch.float32)
+    parallel, orthogonal = stg.project(v0, torch.randn_like(v0))
+    assert parallel.dtype == torch.float32
+    assert orthogonal.dtype == torch.float32
+
+
+def test_find_step_matches_naive_scan_and_caches_schedule():
+    dynamic_conditioning = _load(
+        "ltxpkg.dynamic_conditioning", "dynamic_conditioning.py"
+    )
+    node = dynamic_conditioning.DynamicConditioning()
+    schedule = torch.tensor([1.0, 0.8, 0.6, 0.4, 0.2, 0.0])
+
+    def naive(sigma):
+        for i, step_sigma in enumerate(schedule):
+            if step_sigma <= sigma:
+                return i
+        return len(schedule) - 1
+
+    for value in [1.5, 1.0, 0.9, 0.5, 0.05, -1.0]:
+        sigma = torch.tensor([value])
+        assert node.find_step(sigma, schedule) == naive(sigma)
+
+    # The schedule is pulled to host once and reused across steps.
+    assert node._step_sigmas == schedule.tolist()
+
+
+def test_q8_nodes_reject_pre_ada_gpus(monkeypatch):
+    """An SM86 card must get a clear message, not a CUDA failure."""
+    q8_nodes = _load("ltxpkg.q8_nodes", "q8_nodes.py")
+    monkeypatch.setattr(q8_nodes, "Q8_AVAILABLE", True)
+    monkeypatch.setattr(q8_nodes.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(q8_nodes.torch.cuda, "get_device_capability", lambda: (8, 6))
+    monkeypatch.setattr(q8_nodes.torch.cuda, "get_device_name", lambda: "RTX 3090")
+
+    with pytest.raises(RuntimeError, match="Ada-generation GPU or newer"):
+        q8_nodes.check_q8_available()
+
+
+def test_q8_nodes_accept_ada_and_newer(monkeypatch):
+    q8_nodes = _load("ltxpkg.q8_nodes", "q8_nodes.py")
+    monkeypatch.setattr(q8_nodes, "Q8_AVAILABLE", True)
+    monkeypatch.setattr(q8_nodes.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(q8_nodes.torch.cuda, "get_device_capability", lambda: (8, 9))
+    monkeypatch.setattr(q8_nodes.torch.cuda, "get_device_name", lambda: "RTX 4090")
+
+    q8_nodes.check_q8_available()
+
+
+def test_q8_lora_checks_availability_before_touching_kernels():
+    """quant_fn = hadamard_transform used to NameError ahead of the guard."""
+    source = (REPO / "q8_nodes.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    load_lora = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "load_lora"
+    )
+    first = load_lora.body[0]
+    while isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+        load_lora.body.pop(0)  # skip a docstring
+        first = load_lora.body[0]
+
+    assert isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
+    assert first.value.func.id == "check_q8_available"
+
+
+def test_stg_presets_are_read_with_explicit_encoding():
+    source = (REPO / "stg.py").read_text(encoding="utf-8")
+    assert "json.load(open(" not in source
+    assert 'encoding="utf-8"' in source
+
+
+def test_requirements_drop_unused_diffusers():
+    requirements = (REPO / "requirements.txt").read_text(encoding="utf-8")
+    assert "diffusers" not in requirements
+
+    # Skip tests/ -- this file mentions the name in its own assertions.
+    sources = [
+        path
+        for path in list(REPO.glob("*.py")) + list(REPO.glob("*/*.py"))
+        if "tests" not in path.parts
+    ]
+    importers = [
+        path.name
+        for path in sources
+        if re.search(
+            r"^\s*(import diffusers|from diffusers)",
+            path.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    ]
+    assert not importers, f"diffusers is actually imported by {importers}"
 
 
 def test_batched_quantile_chunks_without_changing_results(monkeypatch):
