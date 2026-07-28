@@ -46,10 +46,7 @@ from .nodes_registry import NODE_CLASS_MAPPINGS as RUNTIME_NODE_CLASS_MAPPINGS
 from .nodes_registry import (
     NODE_DISPLAY_NAME_MAPPINGS as RUNTIME_NODE_DISPLAY_NAME_MAPPINGS,
 )
-from .nodes_registry import (
-    NODES_DISPLAY_NAME_PREFIX,
-    camel_case_to_spaces,
-)
+from .nodes_registry import NODES_DISPLAY_NAME_PREFIX, camel_case_to_spaces
 from .prompt_enhancer_nodes import LTXVPromptEnhancer, LTXVPromptEnhancerLoader
 from .pyramid_blending import LTXVLaplacianPyramidBlend
 from .q8_nodes import LTXVQ8LoraModelLoader, LTXVQ8Patch

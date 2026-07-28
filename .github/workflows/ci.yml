@@ -34,7 +34,17 @@ jobs:
           pip install kornia safetensors pytest
 
       - name: Run tests
-        run: pytest tests/
+        # Echo the tail of a failure as a workflow ::error::, so the reason is
+        # visible from the run's annotations without needing log-download rights.
+        run: |
+          set +e
+          pytest tests/ -q --tb=short -rf > pytest.out 2>&1
+          status=$?
+          cat pytest.out
+          if [ $status -ne 0 ]; then
+            echo "::error::$(tail -c 2500 pytest.out | tr '\n' '|')"
+          fi
+          exit $status
 
   lint:
     runs-on: ubuntu-latest
@@ -53,10 +63,10 @@ jobs:
         run: ruff check .
 
       - name: black
-        run: black --check .
+        run: black --check --diff .
 
       - name: isort
-        run: isort --profile black --check-only .
+        run: isort --profile black --check-only --diff .
 
   syntax:
     name: import surface
