@@ -1,8 +1,47 @@
 import logging
 
+import comfy.model_management
+import comfy.utils
 import torch
 
 from .nodes_registry import comfy_node
+
+_WORKING_DTYPES = ["float16", "bfloat16", "float32", "auto"]
+
+_DTYPE_BY_NAME = {
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+    "float32": torch.float32,
+}
+
+
+def _resolve_working_dtype(working_dtype, samples):
+    """Map the working_dtype widget to a torch dtype ('auto' follows the latents)."""
+    return _DTYPE_BY_NAME.get(working_dtype, samples.dtype)
+
+
+def _check_decode_headroom(shape, dtype, device, hint):
+    """Fail fast with an actionable message instead of OOM-ing mid-decode.
+
+    ComfyUI handles a hard CUDA OOM poorly (it frequently hangs rather than
+    surfacing a clean error), so for the one allocation whose size we can
+    predict exactly, check it up front.
+    """
+    if device is None or torch.device(device).type != "cuda":
+        return
+
+    needed = torch.empty((), dtype=dtype).element_size()
+    for dim in shape:
+        needed *= dim
+    free = comfy.model_management.get_free_memory(torch.device(device))
+
+    # Leave room for the VAE's own activations and the per-tile intermediates.
+    if needed > free * 0.8:
+        raise RuntimeError(
+            f"LTXV tiled VAE decode needs ~{needed / 2**30:.2f} GiB for the output "
+            f"accumulator but only ~{free / 2**30:.2f} GiB is free on {device}. "
+            f"{hint}"
+        )
 
 
 @comfy_node(
@@ -16,14 +55,56 @@ class LTXVTiledVAEDecode:
             "required": {
                 "vae": ("VAE",),
                 "latents": ("LATENT",),
-                "horizontal_tiles": ("INT", {"default": 1, "min": 1, "max": 6}),
-                "vertical_tiles": ("INT", {"default": 1, "min": 1, "max": 6}),
-                "overlap": ("INT", {"default": 1, "min": 1, "max": 8}),
-                "last_frame_fix": ("BOOLEAN", {"default": False}),
+                "horizontal_tiles": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 6,
+                        "tooltip": "Number of horizontal tiles. More tiles lower peak VRAM but cost time and can show seams.",
+                    },
+                ),
+                "vertical_tiles": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 6,
+                        "tooltip": "Number of vertical tiles. More tiles lower peak VRAM but cost time and can show seams.",
+                    },
+                ),
+                "overlap": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 8,
+                        "tooltip": "Overlap between spatial tiles, in latent pixels. Larger values hide seams at the cost of extra decoding.",
+                    },
+                ),
+                "last_frame_fix": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Repeat the last frame before decoding and discard it afterwards.",
+                    },
+                ),
             },
             "optional": {
-                "working_device": (["cpu", "auto"], {"default": "auto"}),
-                "working_dtype": (["float16", "float32", "auto"], {"default": "auto"}),
+                "working_device": (
+                    ["cpu", "auto"],
+                    {
+                        "default": "auto",
+                        "tooltip": "Device holding the output accumulator. 'cpu' keeps the full-size result out of VRAM. auto->same as the latents.",
+                    },
+                ),
+                "working_dtype": (
+                    _WORKING_DTYPES,
+                    {
+                        "default": "auto",
+                        "tooltip": "Accumulator dtype. bfloat16 halves accumulator memory vs float32 with better range than float16. auto->same as the latents.",
+                    },
+                ),
             },
         }
 
@@ -76,12 +157,15 @@ class LTXVTiledVAEDecode:
         weights = None
 
         target_device = samples.device if working_device == "auto" else working_device
-        if working_dtype == "auto":
-            target_dtype = samples.dtype
-        elif working_dtype == "float16":
-            target_dtype = torch.float16
-        elif working_dtype == "float32":
-            target_dtype = torch.float32
+        target_dtype = _resolve_working_dtype(working_dtype, samples)
+
+        _check_decode_headroom(
+            (batch, image_frames, output_height, output_width, 3),
+            target_dtype,
+            target_device,
+            hint="Set working_device=cpu, use LTXVSpatioTemporalTiledVAEDecode to "
+            "chunk over time, or lower the resolution/frame count.",
+        )
 
         output = torch.zeros(
             (
@@ -94,11 +178,17 @@ class LTXVTiledVAEDecode:
             device=target_device,
             dtype=target_dtype,
         )
+        # The blend mask is identical for every frame and every batch item -- it
+        # only varies over (height, width). Allocating it per frame wasted a
+        # tensor one third the size of the output for no reason; a 2D mask
+        # broadcasts to exactly the same result.
         weights = torch.zeros(
-            (batch, image_frames, output_height, output_width, 1),
+            (1, 1, output_height, output_width, 1),
             device=target_device,
             dtype=target_dtype,
         )
+
+        progress = comfy.utils.ProgressBar(vertical_tiles * horizontal_tiles)
 
         # Process each tile
         for v in range(vertical_tiles):
@@ -145,8 +235,9 @@ class LTXVTiledVAEDecode:
                 # Create weight mask for this tile
                 tile_out_height = out_h_end - out_h_start
                 tile_out_width = out_w_end - out_w_start
+                # Frame/batch independent, same reasoning as `weights` above.
                 tile_weights = torch.ones(
-                    (batch, image_frames, tile_out_height, tile_out_width, 1),
+                    (1, 1, tile_out_height, tile_out_width, 1),
                     device=decoded_tile.device,
                     dtype=decoded_tile.dtype,
                 )
@@ -197,7 +288,9 @@ class LTXVTiledVAEDecode:
                     :, :, out_h_start:out_h_end, out_w_start:out_w_end, :
                 ] += tile_weights.to(target_device, target_dtype)
 
-        # Normalize by weights
+                progress.update(1)
+
+        # Normalize by weights (broadcasts over batch and frames)
         output /= weights + 1e-8
 
         # Reshape output to match expected format [batch * frames, height, width, channels]
@@ -330,10 +423,10 @@ class LTXVSpatioTemporalTiledVAEDecode(LTXVTiledVAEDecode):
                     },
                 ),
                 "working_dtype": (
-                    ["float16", "float32", "auto"],
+                    _WORKING_DTYPES,
                     {
                         "default": "auto",
-                        "tooltip": "The data type to use for the decoding. auto->same as the latents.",
+                        "tooltip": "The data type to use for the decoding. bfloat16 halves accumulator memory vs float32 with better range than float16. auto->same as the latents.",
                     },
                 ),
             },
@@ -377,12 +470,16 @@ class LTXVSpatioTemporalTiledVAEDecode(LTXVTiledVAEDecode):
         output_width = width * width_scale_factor
 
         target_device = samples.device if working_device == "auto" else working_device
-        if working_dtype == "auto":
-            target_dtype = samples.dtype
-        elif working_dtype == "float16":
-            target_dtype = torch.float16
-        elif working_dtype == "float32":
-            target_dtype = torch.float32
+        target_dtype = _resolve_working_dtype(working_dtype, samples)
+
+        _check_decode_headroom(
+            (batch, image_frames, output_height, output_width, 3),
+            target_dtype,
+            target_device,
+            hint="Set working_device=cpu, or lower the resolution/frame count. "
+            "(temporal_tile_length only bounds the per-chunk cost, not this "
+            "full-length output buffer.)",
+        )
 
         # Initialize output tensor and weight tensor
         output = torch.empty(

@@ -1,7 +1,6 @@
-"""Regression tests for the compatibility/crash fixes applied to this fork.
+﻿"""Regression tests for the compatibility/crash fixes applied to this fork.
 
-These run without a ComfyUI checkout: `comfy` and `comfy_api` are stubbed just
-far enough to import the modules under test. torch and kornia are real, so the
+ComfyUI is stubbed by tests/conftest.py; torch and kornia are real, so the
 kornia compatibility checks exercise the actual installed version.
 
     pytest tests/
@@ -17,75 +16,6 @@ import pytest
 import torch
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-
-
-# ---------------------------------------------------------------------------
-# minimal comfy / comfy_api stubs
-# ---------------------------------------------------------------------------
-def _install_stubs():
-    def mod(name):
-        m = types.ModuleType(name)
-        sys.modules[name] = m
-        if "." in name:  # attach to parent so `comfy.samplers` resolves
-            parent, _, child = name.rpartition(".")
-            setattr(sys.modules[parent], child, m)
-        return m
-
-    comfy = mod("comfy")
-    comfy.__path__ = []
-
-    model_management = mod("comfy.model_management")
-    model_management.get_torch_device = lambda: torch.device("cpu")
-    model_management.intermediate_device = lambda: torch.device("cpu")
-
-    mod("comfy.ldm").__path__ = []
-    mod("comfy.ldm.modules").__path__ = []
-    attention = mod("comfy.ldm.modules.attention")
-
-    def optimized_attention(q, k, v, heads, *args, **kwargs):
-        # Distinguishable from `v` so tests can tell "ran" from "skipped".
-        return torch.zeros_like(q)
-
-    attention.optimized_attention = optimized_attention
-    attention.optimized_attention_masked = optimized_attention
-
-    samplers = mod("comfy.samplers")
-    samplers.CFGGuider = type("CFGGuider", (), {})
-    samplers.calc_cond_batch = lambda *args, **kwargs: None
-
-    mod("comfy.model_patcher").ModelPatcher = type("ModelPatcher", (), {})
-    mod("comfy.patcher_extension").CallbacksMP = type("CallbacksMP", (), {})
-
-    comfy_api = mod("comfy_api")
-    comfy_api.__path__ = []
-
-    class _Stub:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __getattr__(self, item):
-            return _Stub()
-
-        def __call__(self, *args, **kwargs):
-            return _Stub()
-
-    class _IO:
-        ComfyNode = type("ComfyNode", (), {})
-        Schema = _Stub
-        NodeOutput = _Stub
-
-        class Image:
-            Input = staticmethod(lambda *args, **kwargs: None)
-            Output = staticmethod(lambda *args, **kwargs: None)
-
-        Mask = Image
-        Boolean = Image
-        Int = Image
-
-    mod("comfy_api.latest").io = _IO
-
-
-_install_stubs()
 
 
 # ---------------------------------------------------------------------------
