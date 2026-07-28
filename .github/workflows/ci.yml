@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master, "fixes/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies
+        # ComfyUI itself is stubbed by tests/conftest.py, so only the genuinely
+        # third-party pieces are needed. torch comes from the CPU index to keep
+        # the runner download small; kornia is installed for real so the
+        # compatibility checks exercise an actual release rather than a stub.
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install kornia safetensors pytest
+
+      - name: Run tests
+        run: pytest tests/
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install linters
+        run: pip install "black==24.4.2" "isort==5.13.2" "ruff==0.4.4"
+
+      - name: ruff
+        run: ruff check .
+
+      - name: black
+        run: black --check .
+
+      - name: isort
+        run: isort --profile black --check-only .
+
+  syntax:
+    name: import surface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Every module must at least compile
+        # Catches the class of breakage that a stubbed test suite can miss,
+        # e.g. an indentation or syntax error in a module no test imports.
+        run: python -m compileall -q . -x '\.git'

@@ -1,0 +1,43 @@
+[project]
+name = "comfyui-ltxvidya"
+description = "LTX-Video custom nodes for ComfyUI, tuned for 24GB Ampere cards and GGUF weights."
+version = "1.1.0"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "einops>=0.6.0",
+    "huggingface_hub>=0.25.2",
+    "kornia>=0.7.0",
+    "ninja~=1.11.1.4",
+    "transformers[timm]>=4.50.0",
+]
+
+[project.urls]
+Repository = "https://github.com/doggeddalle/ComfyUI-LTXVidya"
+
+[tool.comfy]
+DisplayName = "ComfyUI-LTXVidya"
+# Set PublisherId before running `comfy node publish`; it is only needed to
+# push to the Comfy Registry and is intentionally left blank on this fork.
+PublisherId = ""
+Icon = ""
+
+[tool.black]
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Matches the ruff defaults the pre-commit config pins, kept explicit so CI and
+# local runs cannot drift apart.
+select = ["E4", "E7", "E9", "F"]
+
+# NOTE: deliberately no [tool.pytest.ini_options] here. The repository root is
+# itself a Python package, and making it pytest's rootdir would make pytest
+# import __init__.py -- pulling in all of ComfyUI -- during test setup. The
+# suite is configured by tests/pytest.ini, which anchors the rootdir at tests/.

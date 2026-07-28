@@ -19,8 +19,11 @@ LTX-2 is built into ComfyUI core ([see it here](https://github.com/comfyanonymou
 ## Prerequisites
 Before you begin using an LTX-2 workflow in ComfyUI, make sure you have:
 
-* ComfyUI installed (Download here](https://www.comfy.org/download)
-* CUDA-compatible GPU with 32GB+ VRAM
+* ComfyUI installed ([download here](https://www.comfy.org/download))
+* A CUDA-compatible GPU. 32GB+ VRAM is recommended for the full models at high
+  resolution; **24GB cards work** using quantized (GGUF) weights, the
+  `Low VRAM Load ...` loaders described under
+  [Advanced Techniques](#advanced-techniques), and the tiled VAE decode nodes.
 * 100GB+ free disk space for models and cache
 
 

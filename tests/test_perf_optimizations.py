@@ -861,6 +861,203 @@ def test_logging_calls_are_lazy():
     assert not offenders, f"pre-formatted log messages: {offenders}"
 
 
+# ===========================================================================
+# Lazy connector loading
+# ===========================================================================
+def _load_class_by_ast(relpath, class_name, namespace):
+    """Exec one class definition without importing its module."""
+    path = REPO / relpath
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    node = next(
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name
+    )
+    module = ast.Module(body=[node], type_ignores=[])
+    ast.fix_missing_locations(module)
+    exec(compile(module, str(path), "exec"), namespace)
+    return namespace[class_name]
+
+
+def _write_safetensors(tmp_path):
+    from safetensors.torch import save_file
+
+    tensors = {
+        "model.diffusion_model.audio_adaln_single.linear.weight": torch.zeros(2, 2),
+        "model.diffusion_model.video_embeddings_connector.a.weight": torch.ones(2, 2),
+        "model.diffusion_model.video_embeddings_connector.b.bias": torch.full(
+            (2,), 3.0
+        ),
+        "text_embedding_projection.video_aggregate_embed.weight": torch.eye(2),
+        # Stand-in for the multi-GB bulk that must NOT be read.
+        "model.diffusion_model.transformer_blocks.0.weight": torch.zeros(64, 64),
+    }
+    path = tmp_path / "ckpt.safetensors"
+    save_file(tensors, str(path), metadata={"config": '{"transformer": {}}'})
+    return path, tensors
+
+
+def _lazy_checkpoint_class():
+    from collections.abc import Mapping
+
+    from safetensors import safe_open
+
+    return _load_class_by_ast(
+        "text_embeddings_connectors.py",
+        "_LazyCheckpoint",
+        {"Mapping": Mapping, "safe_open": safe_open},
+    )
+
+
+def test_lazy_checkpoint_reads_keys_and_metadata(tmp_path):
+    path, tensors = _write_safetensors(tmp_path)
+    lazy = _lazy_checkpoint_class()(path)
+    try:
+        assert set(lazy) == set(tensors)
+        assert len(lazy) == len(tensors)
+        assert lazy.metadata["config"] == '{"transformer": {}}'
+        # Key-existence checks must not require reading any tensor.
+        assert "model.diffusion_model.audio_adaln_single.linear.weight" in lazy
+        assert "not.a.real.key" not in lazy
+    finally:
+        lazy.close()
+
+
+def test_lazy_checkpoint_filter_prefix_matches_eager_dict(tmp_path):
+    path, tensors = _write_safetensors(tmp_path)
+    prefix = "model.diffusion_model.video_embeddings_connector."
+    expected = {k[len(prefix) :]: v for k, v in tensors.items() if k.startswith(prefix)}
+
+    lazy = _lazy_checkpoint_class()(path)
+    try:
+        actual = lazy.filter_prefix(prefix)
+    finally:
+        lazy.close()
+
+    assert set(actual) == set(expected)
+    for key in expected:
+        assert torch.equal(actual[key], expected[key])
+
+
+def test_lazy_checkpoint_getitem_and_missing_key(tmp_path):
+    path, tensors = _write_safetensors(tmp_path)
+    lazy = _lazy_checkpoint_class()(path)
+    try:
+        key = "text_embedding_projection.video_aggregate_embed.weight"
+        assert torch.equal(lazy[key], tensors[key])
+        with pytest.raises(KeyError):
+            lazy["nope"]
+    finally:
+        lazy.close()
+
+
+def test_filter_helper_prefers_lazy_reader():
+    """It must not fall back to .items(), which would read the whole file."""
+    helper = _load_func_by_ast_local(
+        "embeddings_connector.py", "filter_state_dict_by_prefix"
+    )
+
+    class Recorder(dict):
+        used_items = False
+
+        def filter_prefix(self, prefix):
+            return {"via": "filter_prefix"}
+
+        def items(self):
+            Recorder.used_items = True
+            return super().items()
+
+    assert helper(Recorder(), "p.") == {"via": "filter_prefix"}
+    assert not Recorder.used_items
+
+    # Plain dicts still work.
+    assert helper({"p.a": 1, "q.b": 2}, "p.") == {"a": 1}
+
+
+def _load_func_by_ast_local(relpath, func_name):
+    path = REPO / relpath
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    func = next(
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == func_name
+    )
+    module = ast.Module(body=[func], type_ignores=[])
+    ast.fix_missing_locations(module)
+    ns = {}
+    exec(compile(module, str(path), "exec"), ns)
+    return ns[func_name]
+
+
+def test_pipeline_does_not_eagerly_load_the_checkpoint():
+    source = (REPO / "text_embeddings_connectors.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    pipeline = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "load_text_embeddings_pipeline"
+    )
+    calls = {
+        n.func.id
+        for n in ast.walk(pipeline)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "load_torch_file" not in calls, "pipeline still does a full checkpoint load"
+    assert "_open_checkpoint" in calls
+
+
+# ===========================================================================
+# Node id alias and display names
+# ===========================================================================
+def test_misspelled_node_id_kept_and_aliased():
+    """Renaming the id outright would break every saved workflow using it."""
+    tricks_init = (REPO / "tricks/__init__.py").read_text(encoding="utf-8")
+    tree = ast.parse(tricks_init)
+    mappings = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        name = node.targets[0].id if isinstance(node.targets[0], ast.Name) else None
+        if name in ("NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"):
+            mappings[name] = [k.value for k in node.value.keys]
+
+    classes = mappings["NODE_CLASS_MAPPINGS"]
+    assert "LTXAttentioOverride" in classes, "removing the old id breaks workflows"
+    assert "LTXAttentionOverride" in classes, "correctly spelled alias missing"
+    assert "LTXAttentionOverride" in mappings["NODE_DISPLAY_NAME_MAPPINGS"]
+
+
+def test_display_names_have_no_missing_spaces():
+    offenders = []
+    for path in _package_sources():
+        source = path.read_text(encoding="utf-8")
+        for match in re.finditer(r'display_name="([^"]+)"', source):
+            name = match.group(1)
+            # "VRAMLoad" style run-ons: an uppercase run immediately followed by
+            # a capitalised word.
+            if re.search(r"[A-Z]{2,}[A-Z][a-z]", name):
+                offenders.append(f"{path.name}: {name}")
+    assert not offenders, f"display names look run-together: {offenders}"
+
+
+def test_readme_prerequisites_are_accurate():
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    # The broken link had a ']' with no opening '['.
+    assert "(Download here](" not in readme
+    assert "[download here](https://www.comfy.org/download)" in readme
+    # 24GB owners must not be told the pack is out of reach.
+    assert "24GB cards work" in readme
+
+
+def test_pyproject_does_not_hijack_pytest_rootdir():
+    """A [tool.pytest.ini_options] here would make pytest import the package."""
+    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    # Match a real table header, not the comment that explains its absence.
+    headers = [
+        line.strip()
+        for line in pyproject.splitlines()
+        if line.strip().startswith("[") and not line.lstrip().startswith("#")
+    ]
+    assert "[tool.pytest.ini_options]" not in headers
+    assert (REPO / "tests" / "pytest.ini").exists()
+
+
 def test_batched_quantile_chunks_without_changing_results(monkeypatch):
     """Force the chunked path and confirm it agrees with the direct call."""
     flat = torch.randn(2, 6, 500)

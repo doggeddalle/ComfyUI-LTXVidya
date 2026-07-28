@@ -19,6 +19,11 @@ from .nodes.rectified_sampler_nodes import (
 )
 
 NODE_CLASS_MAPPINGS = {
+    # "LTXAttentioOverride" is a typo for "Attention", but it is the id saved
+    # into every existing workflow that uses the node. Renaming it would break
+    # those on load, so the correct spelling is registered as an additional
+    # alias and the misspelling stays as-is.
+    "LTXAttentionOverride": LTXAttentioOverrideNode,
     "ModifyLTXModel": ModifyLTXModelNode,
     "AddLatentGuide": AddLatentGuideNode,
     "LTXForwardModelSamplingPred": LTXForwardModelSamplingPredNode,
@@ -36,6 +41,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "LTXAttentionOverride": "LTX Attn Block Override",
     "ModifyLTXModel": "Modify LTX Model",
     "AddLatentGuide": "Add LTX Latent Guide",
     "LTXAddImageGuide": "Add LTX Image Guide",

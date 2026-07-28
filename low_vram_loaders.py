@@ -104,7 +104,7 @@ class LowVRAMLatentUpscaleModelLoader(LatentUpscaleModelLoader):
     def define_schema(cls):
         return io.Schema(
             node_id="LowVRAMLatentUpscaleModelLoader",
-            display_name="Low VRAMLoad Latent Upscale Model",
+            display_name="Low VRAM Load Latent Upscale Model",
             category="Lightricks/loaders",
             inputs=[
                 io.Combo.Input(

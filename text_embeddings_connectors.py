@@ -6,20 +6,27 @@ Provides the 3-block Gemma text encoder pipeline:
   3. Embeddings Processor (Video / AV) -- wraps Embeddings1DConnector(s)
 """
 
+import contextlib
 import json
+import logging
 import math
+from collections.abc import Mapping
 from pathlib import Path
 
 import torch
 from comfy.utils import load_torch_file
 from einops import rearrange
+from safetensors import safe_open
 from torch import nn
 
 from .embeddings_connector import (
     Embeddings1DConnector,
+    filter_state_dict_by_prefix,
     load_audio_embeddings_connector,
     load_video_embeddings_connector,
 )
+
+logger = logging.getLogger(__name__)
 
 _PREFIX_BASE = "model.diffusion_model."
 _PREFIX_TEXT_PROJ = "text_embedding_projection."
@@ -42,9 +49,81 @@ def _rescale_norm(x: torch.Tensor, target_dim: int, source_dim: int) -> torch.Te
     return x * math.sqrt(target_dim / source_dim)
 
 
-def _filter_sd(sd: dict, prefix: str) -> dict:
+def _filter_sd(sd, prefix: str) -> dict:
     """Extract keys with *prefix* and strip the prefix."""
-    return {k[len(prefix) :]: v for k, v in sd.items() if k.startswith(prefix)}
+    return filter_state_dict_by_prefix(sd, prefix)
+
+
+class _LazyCheckpoint(Mapping):
+    """Serve individual tensors from a safetensors file without loading it all.
+
+    This module needs a few MB of connector and projection weights, but
+    ``load_torch_file`` materializes the entire checkpoint -- multiple GB for an
+    LTX-2.3 DiT -- and the same file is then read again by the actual model
+    loader. safetensors stores an index in its header, so individual tensors can
+    be fetched on demand and key-existence checks cost nothing at all.
+
+    Presents a read-only Mapping so existing ``key in sd`` / ``sd[key]`` code is
+    unchanged; bulk access goes through ``filter_prefix`` rather than
+    ``.items()``, which would defeat the purpose.
+    """
+
+    def __init__(self, path):
+        self._handle = safe_open(str(path), framework="pt", device="cpu")
+        self._keys = tuple(self._handle.keys())
+        self._key_set = frozenset(self._keys)
+        self.metadata = self._handle.metadata() or {}
+
+    def __contains__(self, key):
+        return key in self._key_set
+
+    def __getitem__(self, key):
+        if key not in self._key_set:
+            raise KeyError(key)
+        return self._handle.get_tensor(key)
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def __len__(self):
+        return len(self._keys)
+
+    def filter_prefix(self, prefix: str) -> dict:
+        return {
+            key[len(prefix) :]: self._handle.get_tensor(key)
+            for key in self._keys
+            if key.startswith(prefix)
+        }
+
+    def close(self):
+        handle, self._handle = self._handle, None
+        if handle is not None and hasattr(handle, "__exit__"):
+            handle.__exit__(None, None, None)
+
+
+@contextlib.contextmanager
+def _open_checkpoint(path):
+    """Yield (state_dict, metadata), reading lazily when the format allows.
+
+    Falls back to a full load for non-safetensors checkpoints, or if the lazy
+    reader cannot open the file for any reason.
+    """
+    if str(path).endswith(".safetensors"):
+        try:
+            lazy = _LazyCheckpoint(path)
+        except Exception as exc:  # noqa: BLE001 - fall back, never fail here
+            logger.warning(
+                "Falling back to a full load of %s (lazy read failed: %s)", path, exc
+            )
+        else:
+            try:
+                yield lazy, lazy.metadata
+            finally:
+                lazy.close()
+            return
+
+    sd, metadata = load_torch_file(str(path), return_metadata=True)
+    yield sd, metadata or {}
 
 
 def _config_value_matches(actual, expected_val) -> bool:
@@ -342,45 +421,49 @@ def load_text_embeddings_pipeline(
     Returns:
         (feature_extractor, embeddings_processor)
     """
-    sd, metadata = load_torch_file(str(ltxv_path), return_metadata=True)
-    config = json.loads(metadata.get("config", "{}"))
-    transformer_config = config.get("transformer", {})
+    with _open_checkpoint(ltxv_path) as (sd, metadata):
+        config = json.loads(metadata.get("config", "{}"))
+        transformer_config = config.get("transformer", {})
 
-    is_av = f"{_PREFIX_BASE}audio_adaln_single.linear.weight" in sd
-    has_dual_aggregate = f"{_PREFIX_TEXT_PROJ}video_aggregate_embed.weight" in sd
+        is_av = f"{_PREFIX_BASE}audio_adaln_single.linear.weight" in sd
+        has_dual_aggregate = f"{_PREFIX_TEXT_PROJ}video_aggregate_embed.weight" in sd
 
-    # Load connectors (always needed)
-    video_connector = load_video_embeddings_connector(sd, transformer_config, dtype)
+        # Load connectors (always needed)
+        video_connector = load_video_embeddings_connector(sd, transformer_config, dtype)
 
-    # Build embeddings processor (Block 3)
-    if is_av:
-        audio_connector = load_audio_embeddings_connector(sd, transformer_config, dtype)
-        processor = AVEmbeddingsProcessor(video_connector, audio_connector)
-    else:
-        processor = VideoEmbeddingsProcessor(video_connector)
+        # Build embeddings processor (Block 3)
+        if is_av:
+            audio_connector = load_audio_embeddings_connector(
+                sd, transformer_config, dtype
+            )
+            processor = AVEmbeddingsProcessor(video_connector, audio_connector)
+        else:
+            processor = VideoEmbeddingsProcessor(video_connector)
 
-    # Build feature extractor (Block 2)
-    if has_dual_aggregate:
-        # V2 (22B): validate config matches expected settings
-        _expected = {
-            "caption_projection_first_linear": False,
-            "caption_proj_input_norm": False,
-            "caption_projection_second_linear": False,
-            "caption_proj_before_connector": True,
-            "text_encoder_norm_type": "per_token_rms",
-        }
-        for key, expected_val in _expected.items():
-            actual = transformer_config.get(key)
-            if not (_config_value_matches(actual, expected_val)):
-                raise ValueError(
-                    f"Unexpected config for dual-aggregate model: {key}={actual!r}, expected {expected_val!r}"
-                )
-        video_agg = _load_aggregate_embed(sd, "video", dtype)
-        audio_agg = _load_aggregate_embed(sd, "audio", dtype) if is_av else None
-        embedding_dim = transformer_config.get("prompt_embedding_dim", 3840)
-        return (FeatureExtractorV2(video_agg, embedding_dim, audio_agg), processor)
-    # V1 (19B)
-    aggregate_embed = _load_single_aggregate_embed(sd, dtype)
+        # Build feature extractor (Block 2)
+        if has_dual_aggregate:
+            # V2 (22B): validate config matches expected settings
+            _expected = {
+                "caption_projection_first_linear": False,
+                "caption_proj_input_norm": False,
+                "caption_projection_second_linear": False,
+                "caption_proj_before_connector": True,
+                "text_encoder_norm_type": "per_token_rms",
+            }
+            for key, expected_val in _expected.items():
+                actual = transformer_config.get(key)
+                if not (_config_value_matches(actual, expected_val)):
+                    raise ValueError(
+                        f"Unexpected config for dual-aggregate model: {key}={actual!r}, expected {expected_val!r}"
+                    )
+            video_agg = _load_aggregate_embed(sd, "video", dtype)
+            audio_agg = _load_aggregate_embed(sd, "audio", dtype) if is_av else None
+            embedding_dim = transformer_config.get("prompt_embedding_dim", 3840)
+            return (FeatureExtractorV2(video_agg, embedding_dim, audio_agg), processor)
+
+        # V1 (19B)
+        aggregate_embed = _load_single_aggregate_embed(sd, dtype)
+
     if aggregate_embed is None and fallback_proj_path is not None:
         aggregate_embed = _load_single_aggregate_embed_from_file(
             fallback_proj_path, dtype

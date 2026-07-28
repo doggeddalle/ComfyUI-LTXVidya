@@ -290,6 +290,59 @@ The preflight check from Phase 1 names the knob to change instead.
 
 ---
 
+## Phase 6 — Load cost, packaging, CI, polish
+
+### Connector weights no longer cost a full checkpoint read
+
+`load_text_embeddings_pipeline` called `load_torch_file` on the LTX-V checkpoint —
+deserializing **the entire multi-GB DiT** — to extract a few MB of connector and
+projection weights, and the same file was then read again by the actual model
+loader.
+
+safetensors keeps an index in its header, so individual tensors can be fetched on
+demand and key-existence checks (`is_av`, `has_dual_aggregate`) cost nothing at all.
+`_LazyCheckpoint` presents a read-only `Mapping` so `key in sd` / `sd[key]` code is
+unchanged, and bulk access goes through `filter_prefix()` rather than `.items()` —
+iterating items would pull every tensor into memory and defeat the whole exercise.
+That required routing both filter sites (here and in `embeddings_connector`) through
+one shared `filter_state_dict_by_prefix()` helper.
+
+Non-safetensors checkpoints, or any failure opening the lazy reader, fall back to
+the original full load with a warning.
+
+### Packaging and CI
+
+`pyproject.toml` adds Comfy Registry metadata and consolidates the black / isort /
+ruff settings so local runs and CI cannot drift. `PublisherId` is intentionally
+blank — it is only needed to push to the registry.
+
+It deliberately carries **no `[tool.pytest.ini_options]`**: the repository root is
+itself a Python package, and making it pytest's rootdir would make pytest import
+`__init__.py` (and therefore all of ComfyUI) during test setup. `tests/pytest.ini`
+keeps the rootdir anchored at `tests/`, and a test now guards that invariant.
+
+`.github/workflows/ci.yml` runs three jobs: the suite on Python 3.10 and 3.12 with
+CPU torch and a real kornia; ruff/black/isort at the versions the pre-commit config
+pins; and `compileall` over the whole tree — which would have caught the syntax
+breakage introduced during the assert sweep in a module no test imports.
+
+While adding this I found `tests/pytest.ini` had been setting `import-mode` as an
+ini key. That is a command-line flag, so pytest was silently ignoring it and warning
+about an unknown config option. It is now in `addopts`.
+
+### Polish
+
+- **`LTXAttentioOverride`** (missing "n") is the node id stored in every saved
+  workflow that uses it. Renaming it would break those on load, so the correct
+  spelling is registered as an **additional alias** and the misspelling stays.
+- `"Low VRAMLoad Latent Upscale Model"` → `"Low VRAM Load ..."`.
+- `README.md` had a broken Markdown link (`(Download here](...)`, no opening
+  bracket) and listed "32GB+ VRAM" as a flat prerequisite — which reads as
+  "unsupported" to a 24 GB owner. It now says 24 GB cards work via GGUF weights, the
+  low-VRAM loaders and the tiled decode nodes.
+
+---
+
 ## Workflows
 
 `example_workflows/3090-gguf/` — three workflows built for this machine. Every node
@@ -346,11 +399,14 @@ run end to end. The tests that matter most in practice:
 
 ## Pinned — not yet done
 
+Everything originally on this list has been done. What remains is work that needs a
+real render or a decision from you:
+
 | Item | Notes |
 |---|---|
-| Cosmetic | `low_vram_loaders.py` display name `"Low VRAMLoad …"` missing a space; `tricks/__init__.py` node-id typo `LTXAttentioOverride` (needs an **alias**, not a rename — a bare rename breaks saved workflows); `README.md:22` broken Markdown link; `README.md:23` says "32GB+ VRAM" without pointing 24 GB owners at `low_vram_loaders.py`. |
-| Connector load cost | `text_embeddings_connectors.py` deserializes the entire multi-GB checkpoint to extract a few MB of connector weights, and the same file is loaded again by the model loader. Lazy safetensors key access would cut load time and transient host RAM. |
-| `pyproject.toml` + CI | No machine-readable package metadata for the Comfy Registry, and the test suite has no workflow to run it — so a regression like the kornia break could land again unnoticed. Upstream PRs #330/#331 cover the packaging half. |
+| End-to-end validation | Nothing here has produced a frame. The three tests that matter are in **Verification** below. |
+| `torch.compile` under GGUF | Ruled out on reasoning, not measurement. If ComfyUI-GGUF's op coverage improves it may become worth re-testing, but the `set_model_patch_replace` hooks remain a real obstacle. |
+| Registry publish | `PublisherId` in `pyproject.toml` is blank; fill it in only if you actually want this fork on the Comfy Registry. |
 
 ---
 

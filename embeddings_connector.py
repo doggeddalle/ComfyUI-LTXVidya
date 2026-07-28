@@ -366,6 +366,21 @@ class Embeddings1DConnector(nn.Module):
 _PREFIX_BASE = "model.diffusion_model."
 
 
+def filter_state_dict_by_prefix(sd, prefix):
+    """Return the entries under ``prefix`` with the prefix stripped.
+
+    ``sd`` may be an ordinary dict or a lazily-read checkpoint (see
+    ``text_embeddings_connectors._LazyCheckpoint``). The lazy reader can serve
+    just the matching tensors, so this must not iterate ``.items()`` -- doing so
+    would pull every tensor in a multi-GB file into memory, which is exactly
+    what the lazy path exists to avoid.
+    """
+    filter_prefix = getattr(sd, "filter_prefix", None)
+    if filter_prefix is not None:
+        return filter_prefix(prefix)
+    return {k[len(prefix) :]: v for k, v in sd.items() if k.startswith(prefix)}
+
+
 def load_embeddings_connector(
     sd,
     connector_prefix,
@@ -375,11 +390,7 @@ def load_embeddings_connector(
     frequencies_precision=LTXFrequenciesPrecision.FLOAT32,
     pe_max_pos=None,
 ):
-    sd_connector = {
-        k[len(connector_prefix) :]: v
-        for k, v in sd.items()
-        if k.startswith(connector_prefix)
-    }
+    sd_connector = filter_state_dict_by_prefix(sd, connector_prefix)
 
     if len(sd_connector) == 0:
         return None
