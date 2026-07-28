@@ -123,6 +123,9 @@ class STGFlag:
 class PatchAttention(contextlib.AbstractContextManager):
     def __init__(self, attn_idx: Optional[Union[int, List[int]]] = None):
         self.current_idx = -1
+        # How much of the current sequence a partitioned self-attention has
+        # consumed so far; 0 means "not inside a partitioned attention".
+        self._guide_offset = 0
 
         if isinstance(attn_idx, int):
             self.attn_idx = [attn_idx]
@@ -151,19 +154,57 @@ class PatchAttention(contextlib.AbstractContextManager):
         self.original_attention = None
         self.original_attention_masked = None
 
-    def stg_attention(self, q, k, v, heads, *args, **kwargs):
-        self.current_idx += 1
-        if self.current_idx in self.attn_idx:
-            return v
+    def _stg_call(self, original, q, k, v, heads, args, kwargs):
+        """Dispatch one optimized_attention call, skipping it if it is selected.
+
+        comfy's guide-mask path (_attention_with_guide_mask in
+        comfy/ldm/lightricks/model.py) implements ONE logical self-attention as
+        up to three optimized_attention calls, each covering a contiguous slice
+        of the queries against the full key/value. Counting those naively breaks
+        twice over: a single self-attention consumes several indices (shifting
+        every later index, including audio_attn_idx), and skipping it by
+        returning the full-length `v` writes a wrongly-shaped tensor into the
+        caller's query slice.
+
+        Only that guide-mask path passes low_precision_attention=False, so it
+        marks the start of a partitioned attention. Its final sub-call omits the
+        flag, so once started we stay in partition mode -- tracking the running
+        query offset -- until the slices have covered the whole sequence.
+        """
+        seq_len = v.shape[1]
+        starts_partition = (
+            kwargs.get("low_precision_attention") is False and q.shape[1] < seq_len
+        )
+        continues_partition = self._guide_offset > 0
+
+        # Only the first sub-call of a partitioned attention advances the index,
+        # so one logical self-attention consumes exactly one STG index.
+        if not continues_partition:
+            self.current_idx += 1
+        skip = self.current_idx in self.attn_idx
+
+        if not (starts_partition or continues_partition):
+            return v if skip else original(q, k, v, heads, *args, **kwargs)
+
+        offset = self._guide_offset
+        query_len = q.shape[1]
+        if skip:
+            # Return the slice of v matching this query slice, not all of v.
+            out = v[:, offset : offset + query_len]
         else:
-            return self.original_attention(q, k, v, heads, *args, **kwargs)
+            out = original(q, k, v, heads, *args, **kwargs)
+
+        offset += query_len
+        self._guide_offset = 0 if offset >= seq_len else offset
+        return out
+
+    def stg_attention(self, q, k, v, heads, *args, **kwargs):
+        return self._stg_call(self.original_attention, q, k, v, heads, args, kwargs)
 
     def stg_attention_masked(self, q, k, v, heads, *args, **kwargs):
-        self.current_idx += 1
-        if self.current_idx in self.attn_idx:
-            return v
-        else:
-            return self.original_attention_masked(q, k, v, heads, *args, **kwargs)
+        return self._stg_call(
+            self.original_attention_masked, q, k, v, heads, args, kwargs
+        )
 
 
 class STGBlockWrapper:
@@ -461,7 +502,6 @@ class STGGuiderAdvanced(comfy.samplers.CFGGuider):
                 stg_result,
                 noise_pred_neg,
                 cfg_scale=self.apg_cfg_scale,
-                momentum_buffer=None,
                 eta=self.eta,
                 norm_threshold=self.norm_threshold,
             )

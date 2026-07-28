@@ -8,9 +8,6 @@ from kornia.geometry.transform.pyramid import (
     PyrUp,
     build_laplacian_pyramid,
     build_pyramid,
-    find_next_powerof_two,
-    is_powerof_two,
-    pad,
 )
 from torch import Tensor
 
@@ -18,6 +15,22 @@ from .nodes_registry import comfy_node
 
 _CHUNK_SIZE = 8
 _MASK_LOW_RES_LONG_SIDE = 64
+
+
+# kornia used to re-export `pad`, `is_powerof_two` and `find_next_powerof_two` from
+# kornia.geometry.transform.pyramid. `pad` was only ever an alias for
+# torch.nn.functional.pad and is gone as of kornia 0.8.x; the two power-of-two
+# helpers are trivial and have never been part of kornia's public `__all__`.
+# Defining them here keeps this node working across kornia versions -- only the
+# genuinely public pyramid API is imported above.
+def is_powerof_two(n: int) -> bool:
+    return n > 0 and (n & (n - 1)) == 0
+
+
+def find_next_powerof_two(n: int) -> int:
+    if n <= 1:
+        return 1
+    return 1 << (n - 1).bit_length()
 
 
 def _pad_for_laplacian(image: torch.Tensor) -> tuple[torch.Tensor, tuple[int, int]]:
@@ -28,7 +41,7 @@ def _pad_for_laplacian(image: torch.Tensor) -> tuple[torch.Tensor, tuple[int, in
     if not (is_powerof_two(h) and is_powerof_two(w)):
         pad_right = find_next_powerof_two(w) - w
         pad_down = find_next_powerof_two(h) - h
-        image = pad(image, (0, pad_right, 0, pad_down), "reflect")
+        image = F.pad(image, (0, pad_right, 0, pad_down), mode="reflect")
     return image, (pad_right, pad_down)
 
 
@@ -41,7 +54,7 @@ def _gaussian_pyramid(
     h, w = images.shape[2], images.shape[3]
     if not (is_powerof_two(w) and is_powerof_two(h)):
         padding = (0, find_next_powerof_two(w) - w, 0, find_next_powerof_two(h) - h)
-        images = pad(images, padding, border_type)
+        images = F.pad(images, padding, mode=border_type)
     return build_pyramid(images, max_level, border_type, align_corners)
 
 

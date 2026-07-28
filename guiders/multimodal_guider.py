@@ -158,6 +158,17 @@ class MultimodalGuider(comfy.samplers.CFGGuider):
         a_noise_pred_perturbed, v_noise_pred_perturbed = 0, 0
         a_noise_pred_modality, v_noise_pred_modality = 0, 0
 
+        # The packed predictions below are only assigned inside the conditional
+        # blocks that follow, but the sampler_post_cfg_function replay at the end
+        # of this method references them unconditionally. Distilled/cfg=1.0 setups
+        # skip the uncond pass, and stg=0 skips the perturbed pass, so without
+        # these defaults that replay raises UnboundLocalError. Falling back to
+        # noise_pred_pos is the neutral value: it makes the corresponding
+        # guidance term (cond - uncond, or cond - perturbed) zero, which is
+        # exactly what "this pass did not run" means.
+        noise_pred_neg = noise_pred_pos
+        noise_pred_perturbed = noise_pred_pos
+
         if any(params.do_uncond() for params in [audio_params, video_params]):
             try:
                 model_options["transformer_options"]["run_vx"] = run_vx
