@@ -143,6 +143,31 @@ def test_weight_accumulator_is_frame_and_batch_independent():
     assert [1, 1] in leading, "expected a (1, 1, H, W, 1) weight buffer"
 
 
+def test_spatiotemporal_decode_runs_and_matches_shape():
+    """The chunk loop now dels its intermediates; make sure it still completes."""
+    node = tiled_vae_decode.LTXVSpatioTemporalTiledVAEDecode()
+    vae = _DeterministicVAE()
+    latents = {"samples": _positional_latent(frames=9, height=8, width=8)}
+
+    reference = tiled_vae_decode.LTXVTiledVAEDecode().decode(
+        vae, latents, 1, 1, 1, False, "auto", "float32"
+    )[0]
+    out = node.decode_spatial_temporal(
+        vae,
+        latents,
+        spatial_tiles=2,
+        spatial_overlap=1,
+        temporal_tile_length=4,
+        temporal_overlap=1,
+        last_frame_fix=False,
+        working_device="auto",
+        working_dtype="float32",
+    )[0]
+
+    assert out.shape == reference.shape
+    assert torch.isfinite(out).all()
+
+
 def test_bfloat16_is_offered_as_working_dtype():
     assert "bfloat16" in tiled_vae_decode._WORKING_DTYPES
     samples = torch.zeros(1, dtype=torch.float16)

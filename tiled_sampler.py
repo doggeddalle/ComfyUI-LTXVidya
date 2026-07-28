@@ -1,6 +1,8 @@
 import copy
 
 import comfy
+import comfy.model_management
+import comfy.utils
 import torch
 from comfy_extras.nodes_custom_sampler import SamplerCustomAdvanced
 from comfy_extras.nodes_lt import LTXVAddGuide, LTXVCropGuides
@@ -133,6 +135,8 @@ class LTXVTiledSampler:
                 "Guider does not have raw conds, cannot use it as a guider. "
                 "Please use STGGuiderAdvanced."
             )
+
+        progress = comfy.utils.ProgressBar(vertical_tiles * horizontal_tiles)
 
         # Process each tile
         for v in range(vertical_tiles):
@@ -312,6 +316,17 @@ class LTXVTiledSampler:
 
                 # Add weights to weight tensor
                 weights[:, :, :, v_start:v_end, h_start:h_end] += tile_weights
+
+                # Tiles are sampled one at a time and their intermediates are
+                # dead by here. Edge tiles have different shapes to interior
+                # ones, which fragments the caching allocator over a long run --
+                # the failure mode being a mid-job OOM on a machine that had
+                # enough total memory. Releasing between tiles is cheap relative
+                # to a full tile sample.
+                del denoised_tile, tile_weights, tile, tile_latents
+                comfy.model_management.soft_empty_cache()
+
+                progress.update(1)
 
         # Normalize by weights
         output = output / (weights + 1e-8)

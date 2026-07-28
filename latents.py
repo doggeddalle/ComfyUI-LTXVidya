@@ -1,5 +1,6 @@
 from typing import Optional
 
+import comfy.model_management
 import comfy.utils
 import comfy_extras.nodes_lt as nodes_lt
 import numpy as np
@@ -331,6 +332,31 @@ class LTXVSetVideoLatentNoiseMasks:
             noise_mask[:, :, f] = resized_masks[mask_idx]
 
 
+def _check_dilation_is_reasonable(
+    samples, dilated_shape, horizontal_scale: int, vertical_scale: int
+) -> None:
+    """Refuse an obviously-wrong dilation instead of OOM-ing on it."""
+    element_size = samples.element_size()
+    elements = 1
+    for dim in dilated_shape:
+        elements *= dim
+    # samples buffer plus the noise-mask buffer built alongside it.
+    needed = elements * element_size + (elements // samples.shape[1]) * element_size
+
+    free = None
+    if samples.is_cuda:
+        free = comfy.model_management.get_free_memory(samples.device)
+
+    if free is not None and needed > free * 0.8:
+        raise ValueError(
+            f"LTXVDilateLatent with scales {horizontal_scale}x{vertical_scale} would "
+            f"allocate ~{needed / 2**30:.2f} GiB (latent {tuple(samples.shape)} -> "
+            f"{tuple(dilated_shape)}) but only ~{free / 2**30:.2f} GiB is free. "
+            f"These scales are normally the ratio between the target latent and the "
+            f"guide latent -- check that the guide resolution matches."
+        )
+
+
 @comfy_node(name="LTXVDilateLatent")
 class LTXVDilateLatent:
     @classmethod
@@ -365,6 +391,13 @@ class LTXVDilateLatent:
         dilated_shape = samples.shape[:3] + (
             samples.shape[3] * vertical_scale,
             samples.shape[4] * horizontal_scale,
+        )
+
+        # The widgets allow scales up to 100 each, so a mismatched guide can ask
+        # for a 10,000x allocation and OOM instead of reporting the mistake.
+        # Both buffers below are allocated at the dilated size.
+        _check_dilation_is_reasonable(
+            samples, dilated_shape, horizontal_scale, vertical_scale
         )
 
         dilated_samples = torch.zeros(

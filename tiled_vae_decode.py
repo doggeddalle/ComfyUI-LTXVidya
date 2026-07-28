@@ -563,6 +563,12 @@ class LTXVSpatioTemporalTiledVAEDecode(LTXVTiledVAEDecode):
                     :, overlap_frames:
                 ]
 
+            # Chunk shapes vary (the first chunk has no overlap, the last is
+            # short), which fragments the caching allocator across a long clip.
+            # Release between chunks -- negligible next to a VAE decode.
+            del decoded_tile, tile, tile_latents
+            comfy.model_management.soft_empty_cache()
+
             # Move to next chunk
             chunk_start = chunk_end
 
