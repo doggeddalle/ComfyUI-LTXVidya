@@ -330,6 +330,22 @@ While adding this I found `tests/pytest.ini` had been setting `import-mode` as a
 ini key. That is a command-line flag, so pytest was silently ignoring it and warning
 about an unknown config option. It is now in `addopts`.
 
+CI earned its keep immediately by failing on its first run, for three real reasons a
+Windows-only workflow could not have surfaced:
+
+- The tree had been formatted with newer black/isort than the versions this repo's
+  own `.pre-commit-config.yaml` pins, and they disagree about when to split an
+  import. Reformatted with the pinned versions so local, pre-commit and CI agree.
+- `numpy` and `einops` were missing from the CI environment. Both are present
+  locally only because ComfyUI happens to install them — `safetensors` needs numpy
+  to write a file, and `feta_enhance_utils` imports einops.
+- Diagnosing that took longer than it should have, because the test helper left a
+  half-initialised module in `sys.modules` after a failed import: only the first
+  test reported the real `ModuleNotFoundError` and the rest reported a misleading
+  `AttributeError`. The helper now drops the module and re-raises.
+
+All four jobs are green as of `3100b7d`.
+
 ### Polish
 
 - **`LTXAttentioOverride`** (missing "n") is the node id stored in every saved
