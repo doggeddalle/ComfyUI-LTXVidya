@@ -361,31 +361,63 @@ All four jobs are green as of `3100b7d`.
 
 ## Workflows
 
-`example_workflows/3090-gguf/` — three workflows built for this machine. Every node
-type, socket name, socket type and widget order was read from the **live ComfyUI node
-registry on this install**, and each file is validated against those same schemas.
+`example_workflows/3090-gguf/` — five workflows, generated and validated against the
+**live ComfyUI node registry on this install** by
+`example_workflows/3090-gguf/generate_workflows.py`, which also checks that every
+model filename names a file that actually exists.
 
 | File | Purpose |
 |---|---|
-| `LTX-2.3_GGUF_T2V_Baseline_3090.json` | Minimal GGUF text-to-video; the reference point |
-| `LTX-2.3_GGUF_T2V_STG_APG_3090.json` | STG + APG, exercising the guidance fixes |
-| `LTX-2.3_GGUF_LongClip_LowVRAM_3090.json` | 1280×704 / 193 frames, spatio-temporal decode, CPU accumulator |
+| `LTX-2.3_GGUF_T2V_3090.json` | Text → video with audio |
+| `LTX-2.3_GGUF_I2V_3090.json` | Image → video with audio |
+| `LTX-2.3_GGUF_T2A_3090.json` | Text → audio only |
+| `LTX-2.3_GGUF_T2V_2Pass_3090.json` | Half res → ×2 latent upscale → partial re-denoise |
+| `LTX-2.3_GGUF_I2V_2Pass_3090.json` | Same, image-conditioned on both passes |
 
-A finding that shaped these: **`models/checkpoints` is empty on this install**, so
-`LTXAVTextEncoderLoader` and `LTXVGemmaCLIPModelLoader` — both of which list from
-that folder — cannot be configured, and the shipped upstream examples that use them
-will not load correctly here. The workflows therefore use core **`CLIPLoader` with
-type `ltxv`** against `ltx-2-3-22b-text_encoder.safetensors`, which is the path that
-actually works with a GGUF DiT.
+### The first attempt was wrong in two ways
 
-They are also **video-only**: `LTXVAudioVAELoader` lists from `checkpoints` too, so
-the AV branch of the upstream examples is not configurable here either.
+An earlier set of three workflows was video-only and used a single `CLIPLoader`.
+Both were mistakes, and both came from the same observation — **`models/checkpoints`
+is empty on a GGUF-only install**, which rules out `LTXAVTextEncoderLoader`,
+`LTXVGemmaCLIPModelLoader` and `LTXVAudioVAELoader` (all three list from that
+folder). The right conclusion was not "do without"; it was to use the loaders that
+read the folders which *do* hold the files:
+
+- **`DualCLIPLoaderGGUF` with `type = ltxv`.** LTX-2.3's encoder is two files — a
+  Gemma-3 12B LLM and a separate text projection — and ComfyUI only assembles
+  `ltxav_te` + `LTXAVGemmaTokenizer` when two state dicts arrive together
+  (`comfy/sd.py:1809`). A single-file `CLIPLoader` silently builds a *different*
+  encoder. The GGUF dual loader lists `.gguf` and `.safetensors` in one dropdown, so
+  a quantized Gemma pairs with a bf16 projection; slot order is irrelevant because
+  comfy identifies each file by content (`comfy/text_encoders/lt.py:194-254`).
+- **Core `VAELoader` for the audio VAE.** It reads `models/vae` and detects an LTX
+  audio VAE from its `vocoder.*` keys, building the same object
+  `LTXVAudioVAELoader` would (`comfy/sd.py:893-904`).
+
+### Optional extras live inside each graph
+
+Rather than multiplying files: `LTXVApplySTG` ships **bypassed** in the model chain
+(bypass passes MODEL through, so it is free while off), and `STGGuiderAdvanced` plus
+`LTXVSpatioTemporalTiledVAEDecode` ship **muted** beside their active counterparts.
+Muted nodes are excluded from execution, so they cost nothing until enabled.
+
+### First-pass-audio toggle (2-pass only)
+
+Modelled on `TenStrip/LTX2.3-10Eros_Workflows`. A `TwoWaySwitch` chooses between
+pass 1's audio latent routed through a zero `SolidMask` — `SetLatentNoiseMask` then
+tells pass 2 to denoise none of it, so the audio survives the upscale untouched —
+and the raw latent, which lets the partial denoise refine the audio too. Both
+options reuse pass 1's audio deliberately: pass 2 starts from a mid-schedule sigma,
+so an empty audio latent has no path to a sensible result.
+
+These two workflows add a dependency on the **`TwoWaySwitch`** node; the other three
+need only ComfyUI-GGUF and this pack.
 
 ---
 
 ## Verification
 
-- **82 tests**, run on the real ComfyUI interpreter (torch 2.10.0+cu130), passing.
+- **128 tests**, run on the real ComfyUI interpreter (torch 2.10.0+cu130), passing.
   ComfyUI is stubbed in `tests/conftest.py`; torch and kornia are real, so the kornia
   checks exercise the actually-installed version.
 - **Equivalence over assertion.** The original nested-loop implementations are kept

@@ -1,63 +1,108 @@
 # RTX 3090 / LTX-2.3 GGUF workflows
 
-Built and validated against the node registry of a live ComfyUI install with an
-RTX 3090 (24 GB, compute capability 8.6) running LTX-2.3 GGUF models. Every node
-type, socket name, socket type and widget order was read from that registry rather
-than written by hand.
+Five workflows for running the LTX-2.3 22B **AV** model from GGUF weights on a
+24 GB card. Every node type, socket and widget was read from a live ComfyUI node
+registry and each file is validated against it — including that the model
+filenames name files that actually exist.
 
-| Workflow | What it's for |
+| Workflow | What it does |
 |---|---|
-| `LTX-2.3_GGUF_T2V_Baseline_3090.json` | Minimal GGUF text-to-video. Start here. |
-| `LTX-2.3_GGUF_T2V_STG_APG_3090.json` | Adds STG + APG guidance. |
-| `LTX-2.3_GGUF_LongClip_LowVRAM_3090.json` | 1280×704 / 193 frames with the spatio-temporal decode and a CPU-side accumulator. |
+| `LTX-2.3_GGUF_T2V_3090.json` | Text → video **with audio**. Start here. |
+| `LTX-2.3_GGUF_I2V_3090.json` | Image → video with audio. |
+| `LTX-2.3_GGUF_T2A_3090.json` | Text → audio only, no video decode. |
+| `LTX-2.3_GGUF_T2V_2Pass_3090.json` | T2V at half res, ×2 latent upscale, partial re-denoise. |
+| `LTX-2.3_GGUF_I2V_2Pass_3090.json` | Same, image-conditioned on both passes. |
 
-## Why these don't look like the upstream examples
+Regenerate them after renaming a model:
 
-**They load the text encoder differently.** The upstream 2.3 examples use
-`LTXAVTextEncoderLoader` (and the pack also offers `LTXVGemmaCLIPModelLoader`). Both
-list their checkpoint from `models/checkpoints`. If you run GGUF that folder is
-typically empty, so **neither node can be configured** — the dropdown has no options.
+```
+python example_workflows/3090-gguf/generate_workflows.py
+```
 
-These workflows use core **`CLIPLoader` with `type = ltxv`** pointed at
-`ltx-2-3-22b-text_encoder.safetensors` in `models/text_encoders`, which is the path
-that works alongside a GGUF DiT loaded through `UnetLoaderGGUF`.
+Edit the filename constants at the top of that script rather than hand-editing the
+JSON.
 
-**They are video-only.** `LTXVAudioVAELoader` also lists from `models/checkpoints`,
-so the audio branch of the upstream examples is not configurable in a GGUF-only
-install either.
+## Two things that are easy to get wrong
 
-## Before running
+**LTX-2.3 needs _two_ text-encoder files.** A Gemma-3 12B LLM *and* a separate text
+projection, loaded together by `DualCLIPLoaderGGUF` with `type = ltxv`. ComfyUI only
+builds the LTX-AV encoder (`ltxav_te` + `LTXAVGemmaTokenizer`) when two state dicts
+arrive together — a single-file `CLIPLoader` silently builds a different encoder.
+The dual loader lists `.gguf` and `.safetensors` in the same dropdown, so a
+quantized Gemma and a bf16 projection mix freely. **Slot order does not matter**;
+comfy identifies each file by its contents.
 
-Point these three widgets at your own files:
+**The audio VAE loads through plain `VAELoader`.** `LTXVAudioVAELoader` reads
+`models/checkpoints`; if you run GGUF that folder is usually empty, so its dropdown
+is empty too. Core `VAELoader` reads `models/vae` and detects an LTX audio VAE from
+its keys, building the same object. There are two `VAELoader` nodes in these graphs
+— one video, one audio.
 
-| Node | Widget | Value used here |
-|---|---|---|
-| `UnetLoaderGGUF` | `unet_name` | `ltx-2.3-22b-dev-Q4_0.gguf` |
-| `CLIPLoader` | `clip_name` | `ltx-2-3-22b-text_encoder.safetensors` |
-| `VAELoader` | `vae_name` | `LTX23_video_vae_bf16.safetensors` |
+## Models expected
 
-`working_dtype = bfloat16` requires the updated node pack (commit `9eceeda` or
-later). On an older pack that option does not exist — choose `auto`.
+| Slot | File |
+|---|---|
+| `UnetLoaderGGUF` | `ltx-2.3-22b-dev-Q4_0.gguf` |
+| `DualCLIPLoaderGGUF` clip 1 | `gemma-3-12b-it-heretic-x.IQ4_XS.gguf` |
+| `DualCLIPLoaderGGUF` clip 2 | `ltx-2.3_text_projection_bf16.safetensors` |
+| video `VAELoader` | `LTX23_video_vae_bf16.safetensors` |
+| audio `VAELoader` | `LTX23_audio_vae_bf16.safetensors` |
+| `LatentUpscaleModelLoader` (2-pass only) | `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` |
 
-## Tuning for VRAM
+Both text-encoder files must sit in `models/text_encoders`.
 
-In rough order of effect, when a job will not fit:
+## Optional extras, built in
 
-1. **`working_device = cpu`** on the decode node. Keeps the full-length output
-   accumulator in system RAM. Costs one transfer per chunk, buys back GBs.
-2. **Use the spatio-temporal decode** for long clips. The spatial-only node still
-   allocates the full-length output buffer, so it does not lower the peak on a long
-   clip no matter how many spatial tiles you add.
-3. **Lower `temporal_tile_length`**, then raise `spatial_tiles`.
-4. **`working_dtype = bfloat16`** — half the accumulator of float32, and on Ampere
-   the same throughput as float16 with better range.
+Rather than shipping separate variants, each workflow carries its alternatives
+inline:
 
-The decode now estimates the accumulator up front and refuses with a message naming
-the shortfall, rather than hanging on a CUDA OOM.
+- **STG** — `LTX Apply STG` sits in the model chain **bypassed** (Ctrl+B toggles
+  it). Bypass passes MODEL straight through, so it costs nothing while off. A
+  `STGGuiderAdvanced` (with APG already enabled) sits **muted** next to the active
+  `CFGGuider`; unmute it with Ctrl+M and move the `GUIDER` link.
+- **Long clips / tight VRAM** — a muted `LTXVSpatioTemporalTiledVAEDecode` sits
+  beside the active `LTXVTiledVAEDecode`. Use it for long clips: the spatial-only
+  node still allocates the full-length output buffer no matter how many spatial
+  tiles you give it, so tiling alone does not lower the peak.
 
-## A caveat worth reading
+Muted nodes are excluded from execution, so they cost nothing until enabled.
 
-These graphs are validated structurally — node types, sockets, types and widget
-counts all match the installed nodes. They have **not** been executed to produce a
-video. Treat the first run as a smoke test, and check that the three filenames above
-match your install.
+## VRAM, in the order worth trying
+
+1. `working_device = cpu` on the decode node — keeps the full-length output
+   accumulator in system RAM.
+2. Switch to the spatio-temporal decode for anything long.
+3. `working_dtype = bfloat16` — half the accumulator of float32, same speed as fp16
+   on Ampere.
+4. Raise the tile counts.
+5. On the 2-pass workflows, lower `LTXVLatentUpsamplerTiled.tile_size` — the
+   upsampler runs while the model is still resident.
+
+The decode estimates its accumulator up front and refuses with a message naming the
+shortfall, rather than hanging on a CUDA OOM.
+
+## The first-pass-audio toggle (2-pass only)
+
+`Force First Pass Audio (1) or Resample Audio (2)`:
+
+- **1** — pass 1's audio latent passes through a zero `SolidMask`, so pass 2
+  denoises none of it and the audio you heard in pass 1 survives untouched while the
+  video is upscaled.
+- **2** — the raw latent goes through instead, letting the partial denoise refine
+  the audio alongside the video.
+
+Both options reuse pass 1's audio deliberately. Starting pass 2 from an *empty*
+audio latent would not work — it begins from a mid-schedule sigma, so there is no
+path from silence to a sensible result.
+
+## Dependencies
+
+ComfyUI-GGUF for the loaders, plus this node pack. The **two 2-pass workflows also
+need `TwoWaySwitch`**; a missing switch node makes the graph fail to load rather
+than merely degrade. The other three are free of it.
+
+## Caveat
+
+These are validated structurally — node types, sockets, types, widget counts and
+model filenames all check out against the installed nodes. They have **not** been
+executed to produce a frame. Treat the first run of each as a smoke test.

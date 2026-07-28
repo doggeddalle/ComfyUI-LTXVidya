@@ -815,12 +815,19 @@ def test_blend_chunk_size_never_returns_zero(monkeypatch):
 # Diagnostics sweeps
 # ===========================================================================
 def _package_sources():
+    """Runtime modules of the node pack.
+
+    Excludes tests and example_workflows: the latter holds a standalone build
+    script where print() is the output and assert is a developer invariant, not
+    user-facing validation.
+    """
+    excluded = {"tests", "example_workflows"}
     return [
         p
         for p in list(REPO.glob("*.py"))
         + list(REPO.glob("*/*.py"))
         + list(REPO.glob("*/*/*.py"))
-        if "tests" not in p.parts
+        if not excluded & set(p.parts)
     ]
 
 
