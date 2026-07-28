@@ -31,7 +31,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install kornia safetensors pytest
+          # numpy: safetensors needs it to write a file in the lazy-loader tests.
+          # einops: imported by tricks/utils/feta_enhance_utils.
+          pip install kornia safetensors numpy einops pytest
 
       - name: Run tests
         # Echo the tail of a failure as a workflow ::error::, so the reason is

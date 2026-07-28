@@ -30,7 +30,13 @@ def _load(dotted, relpath):
     spec = importlib.util.spec_from_file_location(dotted, REPO / relpath)
     module = importlib.util.module_from_spec(spec)
     sys.modules[dotted] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        # Don't leave a half-initialised module behind; it turns the next
+        # test's failure into a misleading AttributeError.
+        sys.modules.pop(dotted, None)
+        raise
     return module
 
 

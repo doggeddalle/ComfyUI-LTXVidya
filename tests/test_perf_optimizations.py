@@ -39,7 +39,15 @@ def _load(dotted, relpath):
     spec = importlib.util.spec_from_file_location(dotted, REPO / relpath)
     module = importlib.util.module_from_spec(spec)
     sys.modules[dotted] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        # Leaving a half-initialised module in sys.modules makes every later
+        # test report a confusing AttributeError instead of the real import
+        # error, which is exactly what happened when a CI dependency was
+        # missing.
+        sys.modules.pop(dotted, None)
+        raise
     return module
 
 
