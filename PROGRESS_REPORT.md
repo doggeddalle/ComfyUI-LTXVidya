@@ -215,6 +215,81 @@ likely cause (the scales are normally just the target/guide resolution ratio).
 
 ---
 
+## Phase 5 — Categories, dependency isolation, diagnostics (`c443fb9`)
+
+### One menu tree instead of two
+
+80 category declarations used **22 distinct strings across two top-level roots**.
+ComfyUI groups the node browser by exact string, so `lightricks/LTXV` (18 nodes) and
+`Lightricks/latents` rendered as two separate folders, while bare `sampling`,
+`latent`, `utility`, `prompt` and `math/conversion` scattered nodes into ComfyUI's
+own menus, and `ltxtricks` / `fluxtapoz` added two more roots.
+
+Everything now sits under one `Lightricks` tree — 18 strings, one root:
+
+```
+Lightricks/{sampling, guidance, conditioning, latents, VAE, loaders, prompt,
+            masks, image, IC-LoRA, HDR, audio, motion tracking, utility,
+            tricks, tricks/attention, tricks/rf-edit}
+```
+
+The 18-node catch-all was split by what each node actually *does* rather than
+remapped wholesale. Hosted API nodes keep their `api node/...` root deliberately —
+ComfyUI collects those in a dedicated section and relocating one would hide it.
+
+`nodes_registry.normalize_category()` now runs from the decorator for both v1
+`CATEGORY` attributes and v3 schemas, so a stray category can't reintroduce a second
+root. **Categories affect menu placement only** — node type IDs are untouched, so
+saved workflows keep working.
+
+### A broken optional dependency costs one node, not the pack
+
+`nodes_registry` has always had a `skip=` mechanism that nothing used. The kornia
+import in `pyramid_blending` is now guarded and registers with `skip=`;
+`__init__.py` prunes any node exposing `NODE_UNAVAILABLE_REASON`.
+
+The guard catches `Exception`, not `ImportError`, on purpose: a mismatched
+kornia/torch build on Windows fails inside the DLL loader with `OSError`, which an
+`except ImportError` sails straight past — precisely the scenario that motivated it.
+
+### Attention bank and FETA
+
+- **Attention bank** stashed each block's activations with plain `.cpu()`, which
+  allocates pageable memory the driver cannot DMA out of. It now stages through a
+  pinned buffer. The device→host copy stays **blocking**: nothing synchronises
+  before the bank is read back on a later step, so `non_blocking` there would be a
+  race for a few hundred microseconds. The host→device inject is stream-ordered and
+  does use `non_blocking=True`.
+- **FETA** built a boolean eye mask, expanded it to the full attention shape, and
+  produced a masked *copy* of the attention matrix — three full-size allocations per
+  FETA-enabled block per step — to compute a sum available as `total - diagonal`. It
+  also cast to float32 before the softmax rather than letting `softmax(dtype=)` fuse
+  it, and divided by zero for a single-frame clip. Scores are unchanged, asserted
+  against the original as an oracle.
+
+### Chunk sizing
+
+`pyramid_blending` hardcoded 8 frames per chunk — wasteful at low resolution, risky
+at high resolution on a card already holding a 12 GB quantized model. It now derives
+from `get_free_memory()`, with the old constant as the non-CUDA fallback.
+
+**The user-facing tile widgets are deliberately not auto-defaulted from VRAM.**
+`INPUT_TYPES` is evaluated once at startup, when free memory says nothing about
+conditions at execution time; a default derived there would be confidently wrong.
+The preflight check from Phase 1 names the knob to change instead.
+
+### Diagnostics
+
+- **49 `print()` calls → module loggers**, using logging's own `%`-substitution
+  rather than pre-formatted strings, so arguments are only rendered if the record is
+  actually emitted. Three handlers printed a caught exception and immediately
+  re-raised it; removing the print left them doing nothing, so they went too.
+- **15 `assert`s → explicit raises.** `assert` is stripped under `python -O`, which
+  would silently remove the validation. The ones that merely said two things "must
+  match" now report the actual values.
+
+---
+
 ## Workflows
 
 `example_workflows/3090-gguf/` — three workflows built for this machine. Every node
@@ -241,7 +316,7 @@ the AV branch of the upstream examples is not configurable here either.
 
 ## Verification
 
-- **56 tests**, run on the real ComfyUI interpreter (torch 2.10.0+cu130), passing.
+- **82 tests**, run on the real ComfyUI interpreter (torch 2.10.0+cu130), passing.
   ComfyUI is stubbed in `tests/conftest.py`; torch and kornia are real, so the kornia
   checks exercise the actually-installed version.
 - **Equivalence over assertion.** The original nested-loop implementations are kept
@@ -273,14 +348,9 @@ run end to end. The tests that matter most in practice:
 
 | Item | Notes |
 |---|---|
-| Node category normalization | 22 distinct category strings; `lightricks/LTXV` (16 nodes) vs `Lightricks/...` differ only by case, so ComfyUI renders **two separate top-level menus**. Others land in `sampling`, `latent`, `utility`, `math/conversion`, `ltxtricks`, `fluxtapoz`. Upstream PR #401 covers this. |
-| Graceful optional-dependency skip | `nodes_registry.py` implements a `skip=` mechanism that is used **nowhere**. Wrapping the kornia import would make a broken kornia disable *one node* instead of the pack. |
-| Attention bank pinned transfers | `tricks/modules/ltx_model.py` does a blocking `.cpu()` per block per saved step. Keep the offload, use pinned staging + `non_blocking=True`. |
-| FETA fp32 attention | `feta_enhance_utils.py` materializes an explicit fp32 attention matrix and rebuilds a `torch.eye` mask every call. |
-| VRAM-derived tile defaults | `pyramid_blending.py` hardcodes `_CHUNK_SIZE = 8`; tiled nodes take fixed ints unrelated to free memory. |
-| `print()` → `logging` | ~50 calls. `latents.py:89,162,293` print a caught exception then re-raise, duplicating the traceback. |
-| `assert` → `ValueError` | ~10 user-input validations; `prompt_enhancer_utils.py:60` has no message at all. These vanish under `python -O`. |
-| Cosmetic | `low_vram_loaders.py:107` `"Low VRAMLoad …"` missing space; `tricks/__init__.py` node-id typo `LTXAttentioOverride` (needs an alias, not a rename — a bare rename breaks saved workflows); `README.md:22` broken link; `README.md:23` says "32GB+ VRAM" without pointing 24 GB owners at `low_vram_loaders.py`. |
+| Cosmetic | `low_vram_loaders.py` display name `"Low VRAMLoad …"` missing a space; `tricks/__init__.py` node-id typo `LTXAttentioOverride` (needs an **alias**, not a rename — a bare rename breaks saved workflows); `README.md:22` broken Markdown link; `README.md:23` says "32GB+ VRAM" without pointing 24 GB owners at `low_vram_loaders.py`. |
+| Connector load cost | `text_embeddings_connectors.py` deserializes the entire multi-GB checkpoint to extract a few MB of connector weights, and the same file is loaded again by the model loader. Lazy safetensors key access would cut load time and transient host RAM. |
+| `pyproject.toml` + CI | No machine-readable package metadata for the Comfy Registry, and the test suite has no workflow to run it — so a regression like the kornia break could land again unnoticed. Upstream PRs #330/#331 cover the packaging half. |
 
 ---
 
@@ -293,3 +363,5 @@ run end to end. The tests that matter most in practice:
 | `fa1156f` | Vectorize per-step normalization (up to 870×) |
 | `9eceeda` | Remove per-step syncs, gate Q8 nodes on Ada, tidy dependencies |
 | `6fdbf7b` | Release allocator cache between tiles, bound latent dilation |
+| `e8360b0` | Add this report and the RTX 3090 / LTX-2.3 GGUF workflows |
+| `c443fb9` | Unify node categories, isolate optional deps, sweep diagnostics |
