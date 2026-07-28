@@ -312,7 +312,7 @@ class MultimodalGuiderNode:
     RETURN_TYPES = ("GUIDER",)
 
     FUNCTION = "get_guider"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
 
     def get_guider(self, model, positive, negative, parameters, skip_blocks):
         skip_blocks = [int(n.strip()) for n in skip_blocks.split(",") if n.strip()]

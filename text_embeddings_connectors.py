@@ -371,10 +371,10 @@ def load_text_embeddings_pipeline(
         }
         for key, expected_val in _expected.items():
             actual = transformer_config.get(key)
-            assert _config_value_matches(actual, expected_val), (
-                f"Unexpected config for dual-aggregate model: "
-                f"{key}={actual!r}, expected {expected_val!r}"
-            )
+            if not (_config_value_matches(actual, expected_val)):
+                raise ValueError(
+                    f"Unexpected config for dual-aggregate model: {key}={actual!r}, expected {expected_val!r}"
+                )
         video_agg = _load_aggregate_embed(sd, "video", dtype)
         audio_agg = _load_aggregate_embed(sd, "audio", dtype) if is_av else None
         embedding_dim = transformer_config.get("prompt_embedding_dim", 3840)

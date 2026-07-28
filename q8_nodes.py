@@ -96,7 +96,7 @@ class LTXVQ8Patch:
 
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "patch"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/loaders"
     TITLE = "LTXV Q8 Patcher"
     PRESETS = {
         "0.9.8": (True, True, True),
@@ -184,7 +184,7 @@ class LTXVQ8LoraModelLoader:
         }
 
     RETURN_TYPES = ("MODEL",)
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/loaders"
     FUNCTION = "load_lora_model_only"
 
     def load_lora(self, model, lora_name, strength_model):

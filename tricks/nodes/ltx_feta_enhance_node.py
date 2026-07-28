@@ -19,7 +19,7 @@ class LTXFetaEnhanceNode:
 
     RETURN_TYPES = ("MODEL",)
 
-    CATEGORY = "ltxtricks"
+    CATEGORY = "Lightricks/tricks"
     FUNCTION = "apply"
 
     def apply(self, model, feta_weight, attn_override=DEFAULT_ATTN):

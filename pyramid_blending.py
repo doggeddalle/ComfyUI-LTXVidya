@@ -1,20 +1,67 @@
+import logging
 import math
 
 import comfy.model_management
 import torch
 import torch.nn.functional as F
 from comfy_api.latest import io
-from kornia.geometry.transform.pyramid import (
-    PyrUp,
-    build_laplacian_pyramid,
-    build_pyramid,
-)
 from torch import Tensor
 
 from .nodes_registry import comfy_node
 
-_CHUNK_SIZE = 8
+# kornia is the only hard third-party dependency of this module, and
+# __init__.py imports the module unconditionally -- so any kornia failure used
+# to take down the entire node pack rather than this one node. Catch Exception,
+# not just ImportError: a mismatched kornia/torch build on Windows fails with an
+# OSError from the DLL loader, which an `except ImportError` would not contain.
+try:
+    from kornia.geometry.transform.pyramid import (
+        PyrUp,
+        build_laplacian_pyramid,
+        build_pyramid,
+    )
+
+    KORNIA_UNAVAILABLE_REASON = None
+except Exception as exc:  # noqa: BLE001 - deliberately broad, see above
+    PyrUp = build_laplacian_pyramid = build_pyramid = None
+    KORNIA_UNAVAILABLE_REASON = (
+        f"LTXVLaplacianPyramidBlend is unavailable because kornia could not be "
+        f"imported ({type(exc).__name__}: {exc}). Install or repair kornia "
+        f"(`pip install -U kornia`) to enable it; every other LTXV node works "
+        f"without it."
+    )
+    logging.warning(KORNIA_UNAVAILABLE_REASON)
+
+# Fallback when the working device isn't CUDA (or free memory can't be read).
+_CHUNK_SIZE_FALLBACK = 8
+_CHUNK_SIZE_MAX = 64
+# A blend chunk holds two source images, the mask, a Laplacian pyramid for each
+# (~4/3 of the image across all levels) and the pyr_up scratch buffer. Eight
+# image-sized tensors per frame is a deliberately conservative estimate.
+_PYRAMID_TENSORS_PER_FRAME = 8
+# Only spend a quarter of what's free; the VAE and model are still resident.
+_CHUNK_MEMORY_FRACTION = 0.25
 _MASK_LOW_RES_LONG_SIDE = 64
+
+
+def _auto_chunk_size(padded_h: int, padded_w: int, element_size: int, device) -> int:
+    """Choose frames-per-chunk from free VRAM instead of a fixed constant.
+
+    A hardcoded 8 is simultaneously wasteful at low resolution (needless
+    round-trips through the pyramid) and risky at high resolution on a card
+    that is already holding a 12 GB quantized model.
+    """
+    if device is None or torch.device(device).type != "cuda":
+        return _CHUNK_SIZE_FALLBACK
+
+    bytes_per_frame = padded_h * padded_w * 3 * element_size
+    bytes_per_frame *= _PYRAMID_TENSORS_PER_FRAME
+    if bytes_per_frame <= 0:
+        return _CHUNK_SIZE_FALLBACK
+
+    budget = comfy.model_management.get_free_memory(torch.device(device))
+    frames = int((budget * _CHUNK_MEMORY_FRACTION) // bytes_per_frame)
+    return max(1, min(_CHUNK_SIZE_MAX, frames))
 
 
 # kornia used to re-export `pad`, `is_powerof_two` and `find_next_powerof_two` from
@@ -161,8 +208,15 @@ def _pyramid_blend(
     B = image1.shape[0]
     results = []
 
-    for start in range(0, B, _CHUNK_SIZE):
-        end = min(start + _CHUNK_SIZE, B)
+    chunk_size = _auto_chunk_size(
+        orig_h + padding[1], orig_w + padding[0], image1.element_size(), device
+    )
+    logging.debug(
+        "LTXV pyramid blend: %d frames in chunks of %d on %s", B, chunk_size, device
+    )
+
+    for start in range(0, B, chunk_size):
+        end = min(start + chunk_size, B)
 
         img1_chunk, _ = _pad_for_laplacian(image1[start:end])
         img2_chunk, _ = _pad_for_laplacian(image2[start:end])
@@ -187,9 +241,14 @@ def _pyramid_blend(
 @comfy_node(
     name="LTXVLaplacianPyramidBlend",
     description="LTX Laplacian Pyramid Blend",
+    skip=KORNIA_UNAVAILABLE_REASON is not None,
 )
 class LTXVLaplacianPyramidBlend(io.ComfyNode):
     """Blend two images seamlessly using Laplacian pyramid blending with a mask."""
+
+    # __init__.py prunes its static mapping on this attribute, so the node
+    # disappears from the menu instead of erroring when kornia is missing.
+    NODE_UNAVAILABLE_REASON = KORNIA_UNAVAILABLE_REASON
 
     @classmethod
     def define_schema(cls):
@@ -237,6 +296,9 @@ class LTXVLaplacianPyramidBlend(io.ComfyNode):
         trim_to_shortest: bool,
         mask_low_res_dilation: int,
     ) -> io.NodeOutput:
+        if KORNIA_UNAVAILABLE_REASON is not None:
+            raise RuntimeError(KORNIA_UNAVAILABLE_REASON)
+
         device = comfy.model_management.get_torch_device()
 
         if mask.ndim == 4:

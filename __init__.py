@@ -1,3 +1,5 @@
+import logging
+
 from .audio_only import LTXVAudioOnlyEmptyVideoLatent, LTXVAudioOnlyModel
 from .conditioning_loader import LTXVLoadConditioning
 from .conditioning_saver import LTXVSaveConditioning
@@ -44,7 +46,10 @@ from .nodes_registry import NODE_CLASS_MAPPINGS as RUNTIME_NODE_CLASS_MAPPINGS
 from .nodes_registry import (
     NODE_DISPLAY_NAME_MAPPINGS as RUNTIME_NODE_DISPLAY_NAME_MAPPINGS,
 )
-from .nodes_registry import NODES_DISPLAY_NAME_PREFIX, camel_case_to_spaces
+from .nodes_registry import (
+    NODES_DISPLAY_NAME_PREFIX,
+    camel_case_to_spaces,
+)
 from .prompt_enhancer_nodes import LTXVPromptEnhancer, LTXVPromptEnhancerLoader
 from .pyramid_blending import LTXVLaplacianPyramidBlend
 from .q8_nodes import LTXVQ8LoraModelLoader, LTXVQ8Patch
@@ -136,6 +141,16 @@ NODE_DISPLAY_NAME_MAPPINGS.update(TRICKS_NODE_DISPLAY_NAME_MAPPINGS)
 # Update with runtime mappings (these will override static mappings if there are any differences)
 NODE_CLASS_MAPPINGS.update(RUNTIME_NODE_CLASS_MAPPINGS)
 NODE_DISPLAY_NAME_MAPPINGS.update(RUNTIME_NODE_DISPLAY_NAME_MAPPINGS)
+
+# Drop nodes whose optional dependency is unusable. Those modules set
+# NODE_UNAVAILABLE_REASON at import time instead of raising, so a broken
+# optional dependency costs one node rather than the entire pack.
+for _node_name, _node_class in list(NODE_CLASS_MAPPINGS.items()):
+    _unavailable = getattr(_node_class, "NODE_UNAVAILABLE_REASON", None)
+    if _unavailable:
+        del NODE_CLASS_MAPPINGS[_node_name]
+        NODE_DISPLAY_NAME_MAPPINGS.pop(_node_name, None)
+        logging.warning("LTXV: node %s unavailable -- %s", _node_name, _unavailable)
 
 WEB_DIRECTORY = "./web"
 

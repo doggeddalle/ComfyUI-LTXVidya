@@ -79,7 +79,7 @@ class LTXPerturbedAttentionNode:
     RETURN_TYPES = ("MODEL",)
     FUNCTION = "patch"
 
-    CATEGORY = "ltxtricks/attn"
+    CATEGORY = "Lightricks/tricks/attention"
 
     def patch(
         self, model, scale, rescale, cfg, attn_override=DEFAULT_PAG_LTX, attn_type="PAG"

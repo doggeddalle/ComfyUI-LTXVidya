@@ -237,7 +237,7 @@ class LTXVGemmaCLIPModelLoader:
     RETURN_TYPES = ("CLIP",)
     RETURN_NAMES = ("clip",)
     FUNCTION = "load_model"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/loaders"
     TITLE = "LTXV Gemma CLIP Loader"
     OUTPUT_NODE = False
 
@@ -335,7 +335,7 @@ class LTXVGemmaEnhancePrompt:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("enhanced_prompt",)
     FUNCTION = "enhance"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/prompt"
     TITLE = "LTXV Gemma Enhance Prompt"
     OUTPUT_NODE = True
     DESCRIPTION = (

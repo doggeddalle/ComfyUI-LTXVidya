@@ -1,4 +1,5 @@
 import copy
+import logging
 
 import comfy
 import comfy.model_management
@@ -9,6 +10,8 @@ from comfy_extras.nodes_lt import LTXVAddGuide, LTXVCropGuides
 
 from .latents import LTXVAddLatentGuide, LTXVSelectLatents
 from .nodes_registry import comfy_node
+
+logger = logging.getLogger(__name__)
 
 
 @comfy_node(
@@ -58,7 +61,7 @@ class LTXVTiledSampler:
 
     FUNCTION = "sample"
 
-    CATEGORY = "sampling"
+    CATEGORY = "Lightricks/sampling"
 
     def sample(
         self,
@@ -105,9 +108,13 @@ class LTXVTiledSampler:
         if optional_cond_indices is not None and optional_cond_images is not None:
             optional_cond_indices = optional_cond_indices.split(",")
             optional_cond_indices = [int(i) for i in optional_cond_indices]
-            assert len(optional_cond_indices) == len(
-                optional_cond_images
-            ), "Number of optional cond images must match number of optional cond indices"
+            if len(optional_cond_indices) != len(optional_cond_images):
+                raise ValueError(
+                    f"optional_cond_indices lists {len(optional_cond_indices)} "
+                    f"position(s) but {len(optional_cond_images)} conditioning "
+                    f"image(s) were supplied. Provide one comma-separated frame "
+                    f"index per image."
+                )
 
         images_cond_strengths = [float(i) for i in images_cond_strengths.split(",")]
         if optional_cond_images is not None and len(images_cond_strengths) < len(
@@ -161,9 +168,9 @@ class LTXVTiledSampler:
                 tile_height = v_end - v_start
                 tile_width = h_end - h_start
 
-                print(f"Processing tile at row {v}, col {h}:")
-                print(f"  Position: ({v_start}:{v_end}, {h_start}:{h_end})")
-                print(f"  Size: {tile_height}x{tile_width}")
+                logger.info(f"Processing tile at row {v}, col {h}:")
+                logger.info(f"  Position: ({v_start}:{v_end}, {h_start}:{h_end})")
+                logger.info(f"  Size: {tile_height}x{tile_width}")
 
                 # Extract tile
                 tile = samples[:, :, :, v_start:v_end, h_start:h_end]
@@ -196,13 +203,13 @@ class LTXVTiledSampler:
                             img_h_start:img_h_end, img_w_start:img_w_end, :
                         ].unsqueeze(0)
 
-                        print(
+                        logger.info(
                             f"Applying image conditioning on cond image {i_cond_image} for tile at row {v}, col {h} with strength {cond_image_strength} at position {cond_image_idx}:"
                         )
-                        print(
+                        logger.info(
                             f"  Image tile position: ({img_h_start}:{img_h_end}, {img_w_start}:{img_w_end})"
                         )
-                        print(f"  Image tile size: {img_tile.shape}")
+                        logger.info(f"  Image tile size: {img_tile.shape}")
 
                         # Add guide from image tile
                         (
@@ -230,7 +237,7 @@ class LTXVTiledSampler:
                             start_index=-1,
                             end_index=-1,
                         )[0]
-                        print(
+                        logger.info(
                             f"using LTXVAddLatentGuide on tiled latent with latent index {middle_latent_idx} and strength {latents_cond_strength}"
                         )
                         (
@@ -246,7 +253,7 @@ class LTXVTiledSampler:
                             latent_idx=middle_latent_idx,
                             strength=latents_cond_strength,
                         )
-                        print(
+                        logger.info(
                             f"using LTXVAddLatentGuide on tiled latent with latent index {frames-1} and strength {latents_cond_strength}"
                         )
                         (

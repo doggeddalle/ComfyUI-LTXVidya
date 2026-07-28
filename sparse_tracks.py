@@ -74,7 +74,7 @@ class LTXVSparseTrackEditor(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVSparseTrackEditor",
-            category="Lightricks/motion_tracking",
+            category="Lightricks/motion tracking",
             description=(
                 "Interactive spline editor for drawing sparse motion tracks "
                 "on a reference image."
@@ -218,7 +218,7 @@ class LTXVDrawTracks(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVDrawTracks",
-            category="Lightricks/motion_tracking",
+            category="Lightricks/motion tracking",
             description=(
                 "GPU-accelerated sparse track renderer. Rasterises circles at "
                 "high resolution and downscales with bilinear interpolation."

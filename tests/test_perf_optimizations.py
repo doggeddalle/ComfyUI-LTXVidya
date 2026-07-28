@@ -24,6 +24,15 @@ if _pkg is None:
     sys.modules["ltxpkg"] = _pkg
 
 
+def _package(dotted, relpath):
+    """Register a namespace package so relative imports inside it resolve."""
+    if dotted not in sys.modules:
+        pkg = types.ModuleType(dotted)
+        pkg.__path__ = [str(REPO / relpath)]
+        sys.modules[dotted] = pkg
+    return sys.modules[dotted]
+
+
 def _load(dotted, relpath):
     if dotted in sys.modules:
         return sys.modules[dotted]
@@ -34,8 +43,14 @@ def _load(dotted, relpath):
     return module
 
 
+_package("ltxpkg.tricks", "tricks")
+_package("ltxpkg.tricks.modules", "tricks/modules")
+_package("ltxpkg.tricks.utils", "tricks/utils")
+
+
 tiled_vae_decode = _load("ltxpkg.tiled_vae_decode", "tiled_vae_decode.py")
 latent_norm = _load("ltxpkg.latent_norm", "latent_norm.py")
+pyramid_blending = _load("ltxpkg.pyramid_blending", "pyramid_blending.py")
 
 
 # ===========================================================================
@@ -536,6 +551,314 @@ def test_requirements_drop_unused_diffusers():
         )
     ]
     assert not importers, f"diffusers is actually imported by {importers}"
+
+
+# ===========================================================================
+# Node categories -- one coherent menu tree
+# ===========================================================================
+def _declared_categories():
+    cats = {}
+    for path in (
+        list(REPO.glob("*.py"))
+        + list(REPO.glob("*/*.py"))
+        + list(REPO.glob("*/*/*.py"))
+    ):
+        if "tests" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if (
+                            isinstance(target, ast.Name)
+                            and target.id == "CATEGORY"
+                            and isinstance(stmt.value, ast.Constant)
+                        ):
+                            cats[node.name] = stmt.value.value
+                elif isinstance(stmt, ast.FunctionDef) and stmt.name == "define_schema":
+                    for sub in ast.walk(stmt):
+                        if (
+                            isinstance(sub, ast.keyword)
+                            and sub.arg == "category"
+                            and isinstance(sub.value, ast.Constant)
+                        ):
+                            cats[node.name] = sub.value.value
+    return cats
+
+
+def test_every_category_lives_under_one_root():
+    """Two roots differing only by case render as two top-level menus."""
+    import ltxpkg.nodes_registry as registry  # noqa: F401
+
+    nodes_registry = _load("ltxpkg.nodes_registry", "nodes_registry.py")
+    allowed_external = tuple(
+        r.casefold() for r in nodes_registry.EXTERNAL_CATEGORY_ROOTS
+    )
+
+    offenders = {}
+    for cls_name, category in _declared_categories().items():
+        root = category.split("/", 1)[0]
+        if root == nodes_registry.DEFAULT_CATEGORY_NAME:
+            continue
+        if root.casefold() in allowed_external:
+            continue
+        offenders[cls_name] = category
+
+    assert not offenders, f"categories outside the Lightricks tree: {offenders}"
+
+
+def test_no_case_variant_roots():
+    roots = {c.split("/", 1)[0] for c in _declared_categories().values()}
+    lowered = [r.casefold() for r in roots]
+    assert len(lowered) == len(
+        set(lowered)
+    ), f"roots differing only by case produce duplicate menus: {sorted(roots)}"
+
+
+@pytest.mark.parametrize(
+    "given,expected",
+    [
+        ("lightricks/LTXV", "Lightricks/LTXV"),
+        ("LIGHTRICKS/latents", "Lightricks/latents"),
+        ("Lightricks/latents", "Lightricks/latents"),
+        ("sampling", "Lightricks/sampling"),
+        ("latent/video", "Lightricks/latent/video"),
+        ("api node/text/Lightricks", "api node/text/Lightricks"),
+        (None, "Lightricks"),
+        ("", "Lightricks"),
+    ],
+)
+def test_normalize_category(given, expected):
+    nodes_registry = _load("ltxpkg.nodes_registry", "nodes_registry.py")
+    assert nodes_registry.normalize_category(given) == expected
+
+
+# ===========================================================================
+# Optional dependency isolation
+# ===========================================================================
+def test_kornia_import_is_guarded_and_broad():
+    """A broken kornia must cost one node, not the whole pack.
+
+    The except clause has to be broad: a mismatched kornia/torch build on
+    Windows raises OSError from the DLL loader, not ImportError.
+    """
+    tree = ast.parse((REPO / "pyramid_blending.py").read_text(encoding="utf-8"))
+    guarded = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        imports_kornia = any(
+            isinstance(sub, ast.ImportFrom) and (sub.module or "").startswith("kornia")
+            for sub in ast.walk(node)
+        )
+        if not imports_kornia:
+            continue
+        for handler in node.handlers:
+            guarded.append(
+                handler.type is None
+                or (
+                    isinstance(handler.type, ast.Name)
+                    and handler.type.id == "Exception"
+                )
+            )
+    assert guarded, "the kornia import is not inside a try block"
+    assert all(guarded), "kornia guard catches too narrow an exception type"
+
+
+def test_pyramid_node_declares_availability_hook():
+    assert hasattr(
+        pyramid_blending.LTXVLaplacianPyramidBlend, "NODE_UNAVAILABLE_REASON"
+    )
+    # kornia is installed in the test environment, so it must be available here.
+    assert pyramid_blending.LTXVLaplacianPyramidBlend.NODE_UNAVAILABLE_REASON is None
+
+
+def test_init_prunes_unavailable_nodes():
+    source = (REPO / "__init__.py").read_text(encoding="utf-8")
+    assert "NODE_UNAVAILABLE_REASON" in source
+    assert "del NODE_CLASS_MAPPINGS[" in source
+
+
+# ===========================================================================
+# FETA -- same scores, without the per-call mask allocations
+# ===========================================================================
+def _reference_feta_score(query_image, key_image, head_dim, num_frames, weight):
+    """Original implementation, kept as an oracle."""
+    scale = head_dim**-0.5
+    query_image = query_image * scale
+    attn_temp = query_image @ key_image.transpose(-2, -1)
+    attn_temp = attn_temp.to(torch.float32)
+    attn_temp = attn_temp.softmax(dim=-1)
+    attn_temp = attn_temp.reshape(-1, num_frames, num_frames)
+    diag_mask = torch.eye(num_frames, device=attn_temp.device).bool()
+    diag_mask = diag_mask.unsqueeze(0).expand(attn_temp.shape[0], -1, -1)
+    attn_wo_diag = attn_temp.masked_fill(diag_mask, 0)
+    num_off_diag = num_frames * num_frames - num_frames
+    mean_scores = attn_wo_diag.sum(dim=(1, 2)) / num_off_diag
+    return (mean_scores.mean() * (num_frames + weight)).clamp(min=1)
+
+
+@pytest.mark.parametrize("num_frames,weight", [(4, 4.0), (7, 2.0), (2, 0.0)])
+def test_feta_score_matches_reference(num_frames, weight):
+    feta = _load(
+        "ltxpkg.tricks.utils.feta_enhance_utils", "tricks/utils/feta_enhance_utils.py"
+    )
+    torch.manual_seed(0)
+    head_dim = 8
+    q = torch.randn(6, 3, num_frames, head_dim)
+    k = torch.randn(6, 3, num_frames, head_dim)
+
+    expected = _reference_feta_score(q, k, head_dim, num_frames, weight)
+    actual = feta._feta_score(q, k, head_dim, num_frames, weight)
+
+    assert torch.allclose(
+        actual, expected, atol=1e-5
+    ), f"{actual.item()} != {expected.item()}"
+
+
+def test_feta_score_single_frame_is_finite():
+    """One frame has no off-diagonal mass; the original divided by zero."""
+    feta = _load(
+        "ltxpkg.tricks.utils.feta_enhance_utils", "tricks/utils/feta_enhance_utils.py"
+    )
+    q = torch.randn(4, 2, 1, 8)
+    k = torch.randn(4, 2, 1, 8)
+
+    actual = feta._feta_score(q, k, 8, 1, 4.0)
+
+    assert torch.isfinite(actual).all()
+    assert torch.isnan(_reference_feta_score(q, k, 8, 1, 4.0)).any()
+
+
+def test_feta_does_not_build_an_eye_mask_per_call():
+    source = (REPO / "tricks/utils/feta_enhance_utils.py").read_text(encoding="utf-8")
+    assert "torch.eye" not in source
+    assert "masked_fill" not in source
+
+
+# ===========================================================================
+# Attention bank -- pinned host staging
+# ===========================================================================
+def test_attention_bank_stages_through_pinned_memory():
+    source = (REPO / "tricks/modules/ltx_model.py").read_text(encoding="utf-8")
+    assert "pin_memory=True" in source
+    assert "_stash_on_cpu" in source
+    # device->host must stay blocking; only the host->device inject is async.
+    # Check actual call keywords, not the source text -- the docstring explains
+    # the tradeoff and legitimately mentions non_blocking.
+    tree = ast.parse(source)
+    stash = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_stash_on_cpu"
+    )
+    async_copies = [
+        n
+        for n in ast.walk(stash)
+        if isinstance(n, ast.Call)
+        and any(kw.arg == "non_blocking" for kw in n.keywords)
+    ]
+    assert not async_copies, "device->host copy must not be non_blocking"
+
+
+def test_stash_on_cpu_roundtrips_values():
+    ltx_model = _load("ltxpkg.tricks.modules.ltx_model", "tricks/modules/ltx_model.py")
+    source = torch.randn(2, 3, 4)
+    assert torch.equal(ltx_model._stash_on_cpu(source), source)
+
+
+# ===========================================================================
+# VRAM-derived blend chunk size
+# ===========================================================================
+def test_blend_chunk_size_falls_back_off_cuda():
+    assert (
+        pyramid_blending._auto_chunk_size(512, 512, 4, torch.device("cpu"))
+        == pyramid_blending._CHUNK_SIZE_FALLBACK
+    )
+    assert (
+        pyramid_blending._auto_chunk_size(512, 512, 4, None)
+        == pyramid_blending._CHUNK_SIZE_FALLBACK
+    )
+
+
+def test_blend_chunk_size_scales_with_free_memory(monkeypatch):
+    mm = sys.modules["comfy.model_management"]
+
+    monkeypatch.setattr(mm, "get_free_memory", lambda device=None: 16 * 2**30)
+    roomy = pyramid_blending._auto_chunk_size(512, 512, 4, torch.device("cuda"))
+
+    monkeypatch.setattr(mm, "get_free_memory", lambda device=None: 256 * 2**20)
+    tight = pyramid_blending._auto_chunk_size(512, 512, 4, torch.device("cuda"))
+
+    assert roomy > tight >= 1
+    assert roomy <= pyramid_blending._CHUNK_SIZE_MAX
+
+
+def test_blend_chunk_size_never_returns_zero(monkeypatch):
+    mm = sys.modules["comfy.model_management"]
+    monkeypatch.setattr(mm, "get_free_memory", lambda device=None: 1)
+    assert pyramid_blending._auto_chunk_size(4096, 4096, 4, torch.device("cuda")) == 1
+
+
+# ===========================================================================
+# Diagnostics sweeps
+# ===========================================================================
+def _package_sources():
+    return [
+        p
+        for p in list(REPO.glob("*.py"))
+        + list(REPO.glob("*/*.py"))
+        + list(REPO.glob("*/*/*.py"))
+        if "tests" not in p.parts
+    ]
+
+
+def test_no_print_calls_remain():
+    offenders = []
+    for path in _package_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"
+            ):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert not offenders, f"print() should be logging: {offenders}"
+
+
+def test_no_asserts_validate_user_input():
+    """assert is stripped under python -O, taking the validation with it."""
+    offenders = []
+    for path in _package_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                offenders.append(f"{path.name}:{node.lineno}")
+    assert not offenders, f"convert to explicit raises: {offenders}"
+
+
+def test_logging_calls_are_lazy():
+    """logger.info('x %s', v), not logger.info('x %s' % v) -- don't pre-format."""
+    offenders = []
+    for path in _package_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"debug", "info", "warning", "error"}
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "logger"
+            ):
+                continue
+            if node.args and isinstance(node.args[0], ast.BinOp):
+                if isinstance(node.args[0].op, ast.Mod):
+                    offenders.append(f"{path.name}:{node.lineno}")
+    assert not offenders, f"pre-formatted log messages: {offenders}"
 
 
 def test_batched_quantile_chunks_without_changing_results(monkeypatch):

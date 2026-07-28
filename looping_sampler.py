@@ -1,4 +1,5 @@
 import copy
+import logging
 from dataclasses import dataclass
 
 import comfy
@@ -7,6 +8,8 @@ import torch
 from .easy_samplers import LTXVBaseSampler, LTXVExtendSampler, LTXVInContextSampler
 from .latents import LTXVDilateLatent, LTXVSelectLatents
 from .nodes_registry import comfy_node
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -236,7 +239,7 @@ class LTXVLoopingSampler:
     RETURN_NAMES = ("denoised_output",)
 
     FUNCTION = "sample"
-    CATEGORY = "sampling"
+    CATEGORY = "Lightricks/sampling"
 
     def _extract_latent_spatial_tile(self, latent_dict, v_start, v_end, h_start, h_end):
         """Extract spatial tile from a latent dictionary."""
@@ -356,10 +359,9 @@ class LTXVLoopingSampler:
                 min(end_index - 1, tile_config.tile_latents["samples"].shape[2] - 1),
             )[0]
 
-            print(
-                "Processing temporal chunk at index",
+            logger.info(
+                "Processing temporal chunk at index %s to %s",
                 start_index,
-                "to",
                 min(end_index - 1, tile_config.tile_latents["samples"].shape[2] - 1),
             )
 
@@ -377,15 +379,15 @@ class LTXVLoopingSampler:
                     ),
                 )[0]
                 normalize_per_frame = True
-                print(
-                    "Normalizing latents provided, normalizing per frame and channel with factor",
+                logger.info(
+                    "Normalizing latents provided, normalizing per frame and channel with factor %s",
                     sampling_config.adain_factor,
                 )
             else:
                 normalizing_latent_chunk = first_tile_out_latents
                 normalize_per_frame = False
-                print(
-                    "No normalizing latents provided, normalizing per channel using first chunk with factor",
+                logger.info(
+                    "No normalizing latents provided, normalizing per channel using first chunk with factor %s",
                     sampling_config.adain_factor,
                 )
 
@@ -421,12 +423,12 @@ class LTXVLoopingSampler:
                         if tile_index == i_temporal_tile
                     ]
                 )
-                print(
+                logger.info(
                     f"Chunk {i_temporal_tile} keyframe indices: {this_chunk_keyframe_indices}"
                 )
             else:
                 this_chunk_keyframes = None
-                print(f"Chunk {i_temporal_tile} has no keyframes")
+                logger.info(f"Chunk {i_temporal_tile} has no keyframes")
             this_chunk_keyframe_indices = ",".join(
                 [str(i) for i in this_chunk_keyframe_indices]
             )
@@ -639,7 +641,7 @@ class LTXVLoopingSampler:
 
         for keyframe_index in keyframe_indices:
             if keyframe_index >= num_frames:
-                print(
+                logger.info(
                     f"Keyframe index {keyframe_index} is greater than num_frames {num_frames}, skipping"
                 )
                 continue
@@ -658,7 +660,7 @@ class LTXVLoopingSampler:
             while True:
                 tile_start = tile_index * tile_step - 7
                 tile_end = temporal_tile_size + tile_index * tile_step - 1 - 7
-                print(
+                logger.info(
                     f"Tile {tile_index} starts at {tile_start} and ends at {tile_end}"
                 )
 
@@ -751,7 +753,7 @@ class LTXVLoopingSampler:
             temporal_overlap * time_scale_factor,
             frames * time_scale_factor - 7,
         )
-        print(f"Keyframe per tile indices: {keyframe_per_tile_indices}")
+        logger.info(f"Keyframe per tile indices: {keyframe_per_tile_indices}")
         if optional_cond_images is not None:
             optional_keyframes = (
                 comfy.utils.common_upscale(
@@ -769,13 +771,17 @@ class LTXVLoopingSampler:
 
         if optional_guiding_latents is not None:
             guide = optional_guiding_latents["samples"]
-            assert (
-                samples.shape[2] == guide.shape[2]
-            ), "The number of frames in the latents and optional_guiding_latents must be the same"
-            assert (
+            if not (samples.shape[2] == guide.shape[2]):
+                raise ValueError(
+                    "The number of frames in the latents and optional_guiding_latents must be the same"
+                )
+            if not (
                 samples.shape[3] % guide.shape[3] == 0
                 and samples.shape[4] % guide.shape[4] == 0
-            ), "The ratio of the height and width of the latents and optional_guiding_latents must be an integer"
+            ):
+                raise ValueError(
+                    "The ratio of the height and width of the latents and optional_guiding_latents must be an integer"
+                )
             grid_size_h = samples.shape[3] // guide.shape[3]
             grid_size_w = samples.shape[4] // guide.shape[4]
             optional_guiding_latents = LTXVDilateLatent().dilate_latent(
@@ -817,9 +823,9 @@ class LTXVLoopingSampler:
                 tile_height = v_end - v_start
                 tile_width = h_end - h_start
 
-                print(f"Processing spatial tile at row {v}, col {h}:")
-                print(f"  Position: ({v_start}:{v_end}, {h_start}:{h_end})")
-                print(f"  Size: {tile_height}x{tile_width}")
+                logger.info(f"Processing spatial tile at row {v}, col {h}:")
+                logger.info(f"  Position: ({v_start}:{v_end}, {h_start}:{h_end})")
+                logger.info(f"  Size: {tile_height}x{tile_width}")
 
                 # Extract spatial tiles from all inputs
                 (
@@ -962,7 +968,7 @@ class MultiPromptProvider:
     RETURN_NAMES = ("conditionings",)
 
     FUNCTION = "get_prompt_list"
-    CATEGORY = "prompt"
+    CATEGORY = "Lightricks/prompt"
 
     def get_prompt_list(self, prompts, clip):
         prompt_list = prompts.split("|")

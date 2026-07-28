@@ -188,11 +188,10 @@ class LTXVHDRDecodePostprocess:
         tonemapped = _linear_to_srgb(tonemapped_linear)
 
         if save_exr:
-            assert os.environ.get("OPENCV_IO_ENABLE_OPENEXR") == "1", (
-                "EXR output is enabled (save_exr = TRUE), but OpenCV does not support EXR by default. "
-                "To enable it, set the environment variable OPENCV_IO_ENABLE_OPENEXR=1 before starting ComfyUI, then restart. "
-                "Alternatively, disable EXR output or switch to PNG/JPG."
-            )
+            if not (os.environ.get("OPENCV_IO_ENABLE_OPENEXR") == "1"):
+                raise RuntimeError(
+                    "EXR output is enabled (save_exr = TRUE), but OpenCV does not support EXR by default. To enable it, set the environment variable OPENCV_IO_ENABLE_OPENEXR=1 before starting ComfyUI, then restart. Alternatively, disable EXR output or switch to PNG/JPG."
+                )
             self._save_exr_frames(hdr, output_dir, filename_prefix, half_precision)
 
         return (tonemapped, hdr)

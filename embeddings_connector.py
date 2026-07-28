@@ -16,10 +16,12 @@ from torch import nn
 try:
     # New core (since ComfyUI PR #15056) replaced interleaved_freqs_cis/split_freqs_cis with a single freqs_cis_matrix helper
     from comfy.ldm.lightricks.model import freqs_cis_matrix
+
     _USE_FREQS_CIS_MATRIX = True
 except ImportError:
     # Legacy core: cos/sin freqs consumed as a (cos, sin, split) tuple.
     from comfy.ldm.lightricks.model import interleaved_freqs_cis, split_freqs_cis
+
     _USE_FREQS_CIS_MATRIX = False
 
 from .pos_embedding_exp_values import POS_EMBEDDING_EXP_VALUES
@@ -299,9 +301,10 @@ class Embeddings1DConnector(nn.Module):
 
         if self.num_learnable_registers:
             # replace all padded tokens with learnable registers
-            assert (
-                hidden_states.shape[1] % self.num_learnable_registers == 0
-            ), f"Hidden states sequence length {hidden_states.shape[1]} must be divisible by num_learnable_registers {self.num_learnable_registers}."
+            if not (hidden_states.shape[1] % self.num_learnable_registers == 0):
+                raise ValueError(
+                    f"Hidden states sequence length {hidden_states.shape[1]} must be divisible by num_learnable_registers {self.num_learnable_registers}."
+                )
 
             num_registers_duplications = (
                 hidden_states.shape[1] // self.num_learnable_registers

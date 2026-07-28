@@ -101,7 +101,7 @@ class LTXVApplySTG:
     FUNCTION = "apply_stg"
     RETURN_TYPES = ("MODEL",)
     RETURN_NAMES = ("model",)
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
 
     DESCRIPTION = "Defines the blocks to apply the STG to."
 
@@ -570,7 +570,7 @@ class STGGuiderNode:
     RETURN_TYPES = ("GUIDER",)
 
     FUNCTION = "get_guider"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
 
     DESCRIPTION = (
         "Implements Spatiotemporal Skip Guidance (STG), a training-free method enhancing transformer-based "
@@ -698,7 +698,7 @@ class STGGuiderAdvancedNode:
     RETURN_TYPES = ("GUIDER",)
 
     FUNCTION = "get_guider"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
     DESCRIPTION = """
     The Advanced STG Guider implements sophisticated techniques for controlling the denoising process:
 
@@ -791,14 +791,14 @@ class STGGuiderAdvancedNode:
             stg_scale_list = [float(s.strip()) for s in stg_scale_values.split(",")]
             stg_rescale_list = [float(s.strip()) for s in stg_rescale_values.split(",")]
             stg_layers_indices_list = self.parse_stg_layers_indices(stg_layers_indices)
-        print("Using preset: ", preset)
-        print("Skip steps sigma threshold: ", skip_steps_sigma_threshold)
-        print("Cfg star rescale: ", cfg_star_rescale)
-        print("Sigma list: ", sigma_list)
-        print("Cfg list: ", cfg_list)
-        print("Stg scale list: ", stg_scale_list)
-        print("Stg rescale list: ", stg_rescale_list)
-        print("Stg layers indices list: ", stg_layers_indices_list)
+        logger.info("Using preset: %s", preset)
+        logger.info("Skip steps sigma threshold: %s", skip_steps_sigma_threshold)
+        logger.info("Cfg star rescale: %s", cfg_star_rescale)
+        logger.info("Sigma list: %s", sigma_list)
+        logger.info("Cfg list: %s", cfg_list)
+        logger.info("Stg scale list: %s", stg_scale_list)
+        logger.info("Stg rescale list: %s", stg_rescale_list)
+        logger.info("Stg layers indices list: %s", stg_layers_indices_list)
 
         guider = STGGuiderAdvanced(
             model,
@@ -838,7 +838,7 @@ class STGAdvancedPresetsNode:
     RETURN_TYPES = ("STG_ADVANCED_PRESET",)
 
     FUNCTION = "get_preset"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
 
     def get_preset(self, preset=None):
         return (preset,)
@@ -968,7 +968,7 @@ class APGGuiderNode:
     RETURN_TYPES = ("GUIDER",)
 
     FUNCTION = "get_guider"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
 
     DESCRIPTION = """
     The APG Guider implements Adaptive Projected Guidance (APG).

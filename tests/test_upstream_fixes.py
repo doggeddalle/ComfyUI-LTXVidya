@@ -1,4 +1,4 @@
-﻿"""Regression tests for the compatibility/crash fixes applied to this fork.
+"""Regression tests for the compatibility/crash fixes applied to this fork.
 
 ComfyUI is stubbed by tests/conftest.py; torch and kornia are real, so the
 kornia compatibility checks exercise the actual installed version.

@@ -13,7 +13,7 @@ class LTXVDilateVideoMask(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVDilateVideoMask",
-            category="Lightricks/mask_operations",
+            category="Lightricks/masks",
             description=(
                 "Dilates a video mask spatially and/or temporally using "
                 "separable max-pooling and thresholds the result."
@@ -103,7 +103,7 @@ class LTXVInpaintPreprocess(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVInpaintPreprocess",
-            category="Lightricks/image_processing",
+            category="Lightricks/image",
             description=(
                 "Composites images with a green background where mask is "
                 "active, for inpainting conditioning."

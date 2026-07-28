@@ -14,6 +14,32 @@ from torch import nn
 from ..utils.feta_enhance_utils import get_feta_scores
 
 
+def _stash_on_cpu(tensor: torch.Tensor) -> torch.Tensor:
+    """Copy an activation to page-locked host memory.
+
+    The attention bank keeps activations for many blocks and many steps, so
+    holding them on the CPU is the right trade. Plain ``.cpu()`` allocates
+    pageable memory, which the driver cannot DMA out of -- it stages through an
+    internal bounce buffer. A pinned destination is DMA-able and typically
+    around twice as fast.
+
+    The copy is deliberately left blocking. Making it ``non_blocking=True``
+    would return before the transfer completes, and nothing here synchronises
+    before the bank is read back on a later step -- a race for a few hundred
+    microseconds. Device->host is the direction where that matters; the inject
+    path below goes host->device and is stream-ordered, so it can and does use
+    ``non_blocking=True``.
+    """
+    if not tensor.is_cuda:
+        return tensor.detach().clone()
+
+    staging = torch.empty(
+        tensor.shape, dtype=tensor.dtype, device="cpu", pin_memory=True
+    )
+    staging.copy_(tensor.detach())
+    return staging
+
+
 class LTXModifiedCrossAttention(nn.Module):
     def forward(self, x, context=None, mask=None, pe=None, transformer_options={}):
         context = x if context is None else context
@@ -31,14 +57,16 @@ class LTXModifiedCrossAttention(nn.Module):
                 and total_steps - step - 1 < attn_bank["save_steps"]
             ):
                 step_idx = f"{pred_order}_{total_steps-step-1}"
-                attn_bank["block_map"][self.idx][step_idx] = x.cpu()
+                attn_bank["block_map"][self.idx][step_idx] = _stash_on_cpu(x)
             elif sample_mode == "reverse" and step < attn_bank["inject_steps"]:
                 step_idx = f"{pred_order}_{step}"
                 inject_settings = attn_bank.get("inject_settings", {})
                 if len(inject_settings) > 0:
+                    # Host->device from the pinned buffer above; stream-ordered
+                    # against the reads that follow, so non_blocking is safe.
                     inj = (
                         attn_bank["block_map"][self.idx][step_idx]
-                        .to(x.device)
+                        .to(x.device, non_blocking=True)
                         .repeat(len_conds, 1, 1)
                     )
                 if "q" in inject_settings:

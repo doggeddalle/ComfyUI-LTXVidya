@@ -222,9 +222,10 @@ class LTXAddVideoICLoRAGuide(io.ComfyNode):
         frame_idx, latent_idx = nodes_lt.LTXVAddGuide.get_latent_index(
             positive, latent_length, len(image), frame_idx, scale_factors
         )
-        assert (
-            latent_idx + guide_latent.shape[2] <= latent_length
-        ), "Conditioning frames exceed the length of the latent sequence."
+        if not (latent_idx + guide_latent.shape[2] <= latent_length):
+            raise ValueError(
+                "Conditioning frames exceed the length of the latent sequence."
+            )
 
         positive, negative, latent_image, noise_mask = (
             nodes_lt.LTXVAddGuide.append_keyframe(
@@ -423,9 +424,10 @@ class LTXAddVideoICLoRAGuideAdvanced(LTXAddVideoICLoRAGuide):
         frame_idx, latent_idx = nodes_lt.LTXVAddGuide.get_latent_index(
             positive, latent_length, len(image), frame_idx, scale_factors
         )
-        assert (
-            latent_idx + guide_latent.shape[2] <= latent_length
-        ), "Conditioning frames exceed the length of the latent sequence."
+        if not (latent_idx + guide_latent.shape[2] <= latent_length):
+            raise ValueError(
+                "Conditioning frames exceed the length of the latent sequence."
+            )
 
         positive, negative, latent_image, noise_mask = (
             nodes_lt.LTXVAddGuide.append_keyframe(

@@ -43,7 +43,7 @@ class FloatToInt:
 
     RETURN_TYPES = ("INT",)
     FUNCTION = "op"
-    CATEGORY = "math/conversion"
+    CATEGORY = "Lightricks/utility"
 
     def op(self, a: float) -> tuple[int]:
         return (round(a),)
@@ -61,7 +61,7 @@ class ImageToCPU:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "run"
-    CATEGORY = "utility"
+    CATEGORY = "Lightricks/utility"
 
     def run(self, image):
         return (image.cpu(),)

@@ -10,6 +10,30 @@ EXPERIMENTAL_DISPLAY_NAME_PREFIX = "(Experimental 🧪)"
 DEPRECATED_DISPLAY_NAME_PREFIX = "(Deprecated 🚫)"
 DEFAULT_CATEGORY_NAME = "Lightricks"
 
+# ComfyUI groups hosted API nodes under its own top-level root; relocating one
+# of those would hide it from that section, so leave them where they are.
+EXTERNAL_CATEGORY_ROOTS = ("api node",)
+
+
+def normalize_category(category: Optional[str]) -> str:
+    """Force every node into one coherent menu tree.
+
+    ComfyUI groups the node browser by exact category string, so
+    ``lightricks/LTXV`` and ``Lightricks/latents`` render as two separate
+    top-level folders, and a bare ``sampling`` scatters nodes into ComfyUI's
+    own menus. Both were happening across this package.
+    """
+    if not category:
+        return DEFAULT_CATEGORY_NAME
+
+    root = category.split("/", 1)[0]
+    if root.casefold() == DEFAULT_CATEGORY_NAME.casefold():
+        # Re-case the root only; the rest of the path is left alone.
+        return DEFAULT_CATEGORY_NAME + category[len(root) :]
+    if root.casefold() in {r.casefold() for r in EXTERNAL_CATEGORY_ROOTS}:
+        return category
+    return f"{DEFAULT_CATEGORY_NAME}/{category}"
+
 
 def register_node(node_class: Type, name: str, description: str) -> None:
     """
@@ -45,7 +69,7 @@ def _is_v3_node(node_class: Type) -> bool:
 
 
 def _wrap_define_schema(node_class: Type, display_name: str) -> None:
-    """Wrap the define_schema method to inject the display_name into the schema."""
+    """Wrap define_schema to inject the display_name and normalize the category."""
     original_define_schema = node_class.define_schema
 
     @classmethod
@@ -55,6 +79,7 @@ def _wrap_define_schema(node_class: Type, display_name: str) -> None:
         # Only set display_name if not already set in the schema
         if schema.display_name is None:
             schema.display_name = display_name
+        schema.category = normalize_category(getattr(schema, "category", None))
         return schema
 
     node_class.define_schema = wrapped_define_schema
@@ -109,6 +134,10 @@ def comfy_node(
         # For v3 nodes, wrap define_schema to inject the display_name
         if _is_v3_node(node_class):
             _wrap_define_schema(node_class, description)
+        else:
+            node_class.CATEGORY = normalize_category(
+                getattr(node_class, "CATEGORY", None)
+            )
 
         register_node(node_class, name, description)
         return node_class

@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 import comfy.model_management
@@ -9,6 +10,8 @@ from comfy.ldm.lightricks.vae.audio_vae import LATENT_DOWNSAMPLE_FACTOR
 from comfy.nested_tensor import NestedTensor
 
 from .nodes_registry import comfy_node
+
+logger = logging.getLogger(__name__)
 
 
 @comfy_node(name="LTXVSelectLatents")
@@ -41,7 +44,7 @@ class LTXVSelectLatents:
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "select_latents"
-    CATEGORY = "latent/video"
+    CATEGORY = "Lightricks/latents"
     DESCRIPTION = (
         "Selects a range of frames from the video latent. "
         "start_index and end_index define a closed interval (inclusive of both endpoints)."
@@ -62,33 +65,28 @@ class LTXVSelectLatents:
         Raises:
             ValueError: If indices are invalid
         """
-        try:
-            s = samples.copy()
-            video_latent = s["samples"]
-            batch, channels, frames, height, width = video_latent.shape
+        s = samples.copy()
+        video_latent = s["samples"]
+        batch, channels, frames, height, width = video_latent.shape
 
-            # Handle negative indices
-            start_idx = frames + start_index if start_index < 0 else start_index
-            end_idx = frames + end_index if end_index < 0 else end_index
+        # Handle negative indices
+        start_idx = frames + start_index if start_index < 0 else start_index
+        end_idx = frames + end_index if end_index < 0 else end_index
 
-            # Validate and clamp indices
-            start_idx = max(0, min(start_idx, frames - 1))
-            end_idx = max(0, min(end_idx, frames - 1))
-            if start_idx > end_idx:
-                start_idx = min(start_idx, end_idx)
+        # Validate and clamp indices
+        start_idx = max(0, min(start_idx, frames - 1))
+        end_idx = max(0, min(end_idx, frames - 1))
+        if start_idx > end_idx:
+            start_idx = min(start_idx, end_idx)
 
-            # Select frames while maintaining 5D format
-            s["samples"] = video_latent[:, :, start_idx : end_idx + 1, :, :]
+        # Select frames while maintaining 5D format
+        s["samples"] = video_latent[:, :, start_idx : end_idx + 1, :, :]
 
-            # Handle noise mask if present
-            if "noise_mask" in s and s["noise_mask"] is not None:
-                s["noise_mask"] = s["noise_mask"][:, :, start_idx : end_idx + 1, :, :]
+        # Handle noise mask if present
+        if "noise_mask" in s and s["noise_mask"] is not None:
+            s["noise_mask"] = s["noise_mask"][:, :, start_idx : end_idx + 1, :, :]
 
-            return (s,)
-
-        except Exception as e:
-            print(f"[LTXVSelectLatents] Error: {str(e)}")
-            raise
+        return (s,)
 
 
 @comfy_node(name="LTXVAddLatents")
@@ -114,7 +112,7 @@ class LTXVAddLatents:
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "add_latents"
-    CATEGORY = "latent/video"
+    CATEGORY = "Lightricks/latents"
     DESCRIPTION = (
         "Concatenates two video latents along the frames dimension. "
         "latents1 and latents2 must have the same dimensions except for the frames dimension."
@@ -137,31 +135,26 @@ class LTXVAddLatents:
             ValueError: If latent dimensions don't match
             RuntimeError: If tensor operations fail
         """
-        try:
-            s = latents1.copy()
-            video_latent1 = latents1["samples"]
-            video_latent2 = latents2["samples"]
+        s = latents1.copy()
+        video_latent1 = latents1["samples"]
+        video_latent2 = latents2["samples"]
 
-            # Ensure tensors are on the same device
-            target_device = video_latent1.device
-            video_latent2 = video_latent2.to(target_device)
+        # Ensure tensors are on the same device
+        target_device = video_latent1.device
+        video_latent2 = video_latent2.to(target_device)
 
-            # Validate dimensions
-            self._validate_dimensions(video_latent1, video_latent2)
+        # Validate dimensions
+        self._validate_dimensions(video_latent1, video_latent2)
 
-            # Concatenate along frames dimension
-            s["samples"] = torch.cat([video_latent1, video_latent2], dim=2)
+        # Concatenate along frames dimension
+        s["samples"] = torch.cat([video_latent1, video_latent2], dim=2)
 
-            # Handle noise masks
-            s["noise_mask"] = self._merge_noise_masks(
-                latents1, latents2, video_latent1.shape[2], video_latent2.shape[2]
-            )
+        # Handle noise masks
+        s["noise_mask"] = self._merge_noise_masks(
+            latents1, latents2, video_latent1.shape[2], video_latent2.shape[2]
+        )
 
-            return (s,)
-
-        except Exception as e:
-            print(f"[LTXVAddLatents] Error: {str(e)}")
-            raise
+        return (s,)
 
     def _validate_dimensions(self, latent1: torch.Tensor, latent2: torch.Tensor):
         """Validates that latent dimensions match except for frames."""
@@ -234,7 +227,7 @@ class LTXVSetVideoLatentNoiseMasks:
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "set_mask"
-    CATEGORY = "latent/video"
+    CATEGORY = "Lightricks/latents"
     DESCRIPTION = (
         "Applies multiple masks to a video latent. "
         "masks can be 2D, 3D, or 4D tensors. "
@@ -259,40 +252,35 @@ class LTXVSetVideoLatentNoiseMasks:
             ValueError: If mask dimensions are unsupported
             RuntimeError: If tensor operations fail
         """
-        try:
-            s = samples.copy()
-            video_latent = s["samples"]
-            batch_size, channels, num_frames, height, width = video_latent.shape
+        s = samples.copy()
+        video_latent = s["samples"]
+        batch_size, channels, num_frames, height, width = video_latent.shape
 
-            # Initialize noise_mask if not present or resize if dimensions don't match
-            if "noise_mask" not in s:
+        # Initialize noise_mask if not present or resize if dimensions don't match
+        if "noise_mask" not in s:
+            s["noise_mask"] = torch.zeros(
+                (batch_size, 1, num_frames, height, width),
+                dtype=video_latent.dtype,
+                device=video_latent.device,
+            )
+        else:
+            existing_shape = s["noise_mask"].shape
+            # Check if noise_mask has the right number of frames
+            if existing_shape[2] != num_frames:
                 s["noise_mask"] = torch.zeros(
                     (batch_size, 1, num_frames, height, width),
                     dtype=video_latent.dtype,
                     device=video_latent.device,
                 )
-            else:
-                existing_shape = s["noise_mask"].shape
-                # Check if noise_mask has the right number of frames
-                if existing_shape[2] != num_frames:
-                    s["noise_mask"] = torch.zeros(
-                        (batch_size, 1, num_frames, height, width),
-                        dtype=video_latent.dtype,
-                        device=video_latent.device,
-                    )
 
-            # Process masks
-            masks_reshaped = self._reshape_masks(masks)
-            M = masks_reshaped.shape[0]
-            resized_masks = self._resize_masks(masks_reshaped, height, width)
+        # Process masks
+        masks_reshaped = self._reshape_masks(masks)
+        M = masks_reshaped.shape[0]
+        resized_masks = self._resize_masks(masks_reshaped, height, width)
 
-            # Apply masks efficiently
-            self._apply_masks(s["noise_mask"], resized_masks, num_frames, M)
-            return (s,)
-
-        except Exception as e:
-            print(f"[LTXVSetVideoLatentNoiseMasks] Error: {str(e)}")
-            raise
+        # Apply masks efficiently
+        self._apply_masks(s["noise_mask"], resized_masks, num_frames, M)
+        return (s,)
 
     def _reshape_masks(self, masks: torch.Tensor) -> torch.Tensor:
         """Reshapes input masks to consistent 4D format."""
@@ -377,7 +365,7 @@ class LTXVDilateLatent:
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "dilate_latent"
-    CATEGORY = "latent/video"
+    CATEGORY = "Lightricks/latents"
     DESCRIPTION = "Dilates a latent by a grid size."
 
     def dilate_latent(
@@ -459,7 +447,7 @@ class LTXVAddLatentGuide:
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
 
-    CATEGORY = "ltxtricks"
+    CATEGORY = "Lightricks/latents"
     FUNCTION = "generate"
 
     DESCRIPTION = "Adds a keyframe or a video segment at a specific frame index."
@@ -474,10 +462,13 @@ class LTXVAddLatentGuide:
         # Record original (pre-dilation) guide latent shape for spatial mask downsampling
         guide_orig_shape = list(guide.shape[2:])  # [F, H_small, W_small]
 
-        assert (
+        if not (
             latent.shape[4] % guide.shape[4] == 0
             and latent.shape[3] % guide.shape[3] == 0
-        ), "The ratio of the height and width of the latents and optional_guiding_latents must be an integer"
+        ):
+            raise ValueError(
+                "The ratio of the height and width of the latents and optional_guiding_latents must be an integer"
+            )
 
         guiding_latent = LTXVDilateLatent().dilate_latent(
             guiding_latent,
@@ -559,7 +550,7 @@ class LTXVImgToVideoConditionOnly:
 
     RETURN_TYPES = ("LATENT",)
     RETURN_NAMES = ("latent",)
-    CATEGORY = "conditioning/video_models"
+    CATEGORY = "Lightricks/conditioning"
     FUNCTION = "generate"
     DESCRIPTION = (
         "Applies image conditioning to the first frames of an existing latent. "
@@ -713,7 +704,7 @@ class LTXVSetAudioVideoMaskByTime:
     )
 
     FUNCTION = "run"
-    CATEGORY = "utility"
+    CATEGORY = "Lightricks/masks"
     DESCRIPTION = "Sets the audio and video mask by time."
 
     def run(
@@ -822,24 +813,25 @@ class LTXVSetAudioVideoMaskByTime:
         audio_latent_frame_index_end = min(
             audio_latent_frame_index_end, audio_latent_frame_count
         )
-        print(
-            "noise mask start and end indices: video (%d %d), audio (%d %d), video fps: %f, video_latents_per_second: %f, audio_latents_per_second: %f, "
-            "video_latent_frame_count: %d, video_pixel_frame_count: %d, video_pixel_frame_start_raw: %d, video_pixel_frame_end_raw: %d, start_time: %f, end_time: %f"
-            % (
-                video_latent_frame_index_start,
-                video_latent_frame_index_end,
-                audio_latent_frame_index_start,
-                audio_latent_frame_index_end,
-                video_fps,
-                video_latents_per_second,
-                audio_latents_per_second,
-                video_latent_frame_count,
-                video_pixel_frame_count,
-                video_pixel_frame_start_raw,
-                video_pixel_frame_end_raw,
-                start_time,
-                end_time,
-            )
+        logger.debug(
+            "noise mask start and end indices: video (%d %d), audio (%d %d), "
+            "video fps: %f, video_latents_per_second: %f, "
+            "audio_latents_per_second: %f, video_latent_frame_count: %d, "
+            "video_pixel_frame_count: %d, video_pixel_frame_start_raw: %d, "
+            "video_pixel_frame_end_raw: %d, start_time: %f, end_time: %f",
+            video_latent_frame_index_start,
+            video_latent_frame_index_end,
+            audio_latent_frame_index_start,
+            audio_latent_frame_index_end,
+            video_fps,
+            video_latents_per_second,
+            audio_latents_per_second,
+            video_latent_frame_count,
+            video_pixel_frame_count,
+            video_pixel_frame_start_raw,
+            video_pixel_frame_end_raw,
+            start_time,
+            end_time,
         )
         if mask_video:
             if spatial_mask is not None:

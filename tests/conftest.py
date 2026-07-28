@@ -66,6 +66,17 @@ def _install_comfy_stubs():
     utils.ProgressBar = ProgressBar
 
     _module("comfy.ldm").__path__ = []
+    _module("comfy.ldm.common_dit").pad_to_patch_size = lambda x, *a, **kw: x
+
+    lightricks = _module("comfy.ldm.lightricks")
+    lightricks.__path__ = []
+    ltx = _module("comfy.ldm.lightricks.model")
+    ltx.BasicTransformerBlock = type("BasicTransformerBlock", (torch.nn.Module,), {})
+    ltx.LTXVModel = type("LTXVModel", (torch.nn.Module,), {})
+    ltx.apply_rotary_emb = lambda x, pe: x
+    patchifier = _module("comfy.ldm.lightricks.symmetric_patchifier")
+    patchifier.latent_to_pixel_coords = lambda *a, **kw: None
+
     _module("comfy.ldm.modules").__path__ = []
     attention = _module("comfy.ldm.modules.attention")
 

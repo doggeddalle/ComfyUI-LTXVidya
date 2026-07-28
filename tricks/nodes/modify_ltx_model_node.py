@@ -12,7 +12,7 @@ class ModifyLTXModelNode:
 
     RETURN_TYPES = ("MODEL",)
 
-    CATEGORY = "ltxtricks"
+    CATEGORY = "Lightricks/tricks"
     FUNCTION = "modify"
 
     def modify(self, model):

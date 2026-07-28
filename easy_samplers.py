@@ -1,4 +1,5 @@
 import copy
+import logging
 
 import comfy
 import comfy_extras
@@ -14,6 +15,8 @@ from .guide import blur_internal
 from .latent_norm import LTXVAdainLatent
 from .latents import LTXVAddLatentGuide, LTXVSelectLatents
 from .nodes_registry import comfy_node
+
+logger = logging.getLogger(__name__)
 
 
 def _get_raw_conds_from_guider(guider):
@@ -123,7 +126,7 @@ class LTXVBaseSampler:
     RETURN_TYPES = ("LATENT", "CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("denoised", "positive", "negative")
     FUNCTION = "sample"
-    CATEGORY = "sampling"
+    CATEGORY = "Lightricks/sampling"
 
     def sample(
         self,
@@ -176,9 +179,13 @@ class LTXVBaseSampler:
         if optional_cond_indices is not None and optional_cond_images is not None:
             optional_cond_indices = optional_cond_indices.split(",")
             optional_cond_indices = [int(i) for i in optional_cond_indices]
-            assert len(optional_cond_indices) == len(
-                optional_cond_images
-            ), "Number of optional cond images must match number of optional cond indices"
+            if len(optional_cond_indices) != len(optional_cond_images):
+                raise ValueError(
+                    f"optional_cond_indices lists {len(optional_cond_indices)} "
+                    f"position(s) but {len(optional_cond_images)} conditioning "
+                    f"image(s) were supplied. Provide one comma-separated frame "
+                    f"index per image."
+                )
 
         if optional_initialization_latents is None:
             (latents,) = EmptyLTXVLatentVideo().execute(width, height, num_frames, 1)
@@ -212,8 +219,8 @@ class LTXVBaseSampler:
         )
 
         if len(high_sigmas) > 1:
-            print("Denoising with no conditioning on sigmas: ", high_sigmas)
-            (_, new_latents) = SamplerCustomAdvanced().sample(
+            logger.info("Denoising with no conditioning on sigmas: %s", high_sigmas)
+            _, new_latents = SamplerCustomAdvanced().sample(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -261,8 +268,8 @@ class LTXVBaseSampler:
         guider.set_conds(positive, negative)
 
         # Denoise the latent video
-        print("Denoising with conditioning on sigmas: ", middle_sigmas)
-        (output_latents, denoised_output_latents) = SamplerCustomAdvanced().sample(
+        logger.info("Denoising with conditioning on sigmas: %s", middle_sigmas)
+        output_latents, denoised_output_latents = SamplerCustomAdvanced().sample(
             noise=noise,
             guider=guider,
             sampler=sampler,
@@ -280,11 +287,11 @@ class LTXVBaseSampler:
         denoised_output_latents["noise_mask"] = conditioning_latent_frames_mask
 
         if len(low_sigmas) > 1:
-            print(
-                "Denoising with no conditioning but with classical i2v noise mask on sigmas: ",
+            logger.info(
+                "Denoising with no conditioning but with classical i2v noise mask on sigmas: %s",
                 low_sigmas,
             )
-            (_, denoised_output_latents) = SamplerCustomAdvanced().sample(
+            _, denoised_output_latents = SamplerCustomAdvanced().sample(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -371,7 +378,7 @@ class LTXVExtendSampler:
     RETURN_TYPES = ("LATENT", "CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("denoised_video", "positive", "negative")
     FUNCTION = "sample"
-    CATEGORY = "sampling"
+    CATEGORY = "Lightricks/sampling"
 
     def sample(
         self,
@@ -406,9 +413,13 @@ class LTXVExtendSampler:
         if optional_cond_indices is not None and optional_cond_images is not None:
             optional_cond_indices = optional_cond_indices.split(",")
             optional_cond_indices = [int(i) for i in optional_cond_indices]
-            assert len(optional_cond_indices) == len(
-                optional_cond_images
-            ), "Number of optional cond images must match number of optional cond indices"
+            if len(optional_cond_indices) != len(optional_cond_images):
+                raise ValueError(
+                    f"optional_cond_indices lists {len(optional_cond_indices)} "
+                    f"position(s) but {len(optional_cond_images)} conditioning "
+                    f"image(s) were supplied. Provide one comma-separated frame "
+                    f"index per image."
+                )
 
         positive, negative = _get_raw_conds_from_guider(guider)
 
@@ -462,7 +473,7 @@ class LTXVExtendSampler:
         )
 
         if optional_cond_images is not None:
-            print("Adding conditioning on keyframes")
+            logger.info("Adding conditioning on keyframes")
             for cond_image, cond_idx in zip(
                 optional_cond_images, optional_cond_indices
             ):
@@ -487,8 +498,10 @@ class LTXVExtendSampler:
 
         if len(high_sigmas) > 1:
             guider.set_conds(positive, negative)
-            print("Denoising with overlap conditioning only on sigmas: ", high_sigmas)
-            (_, new_latents) = SamplerCustomAdvanced().sample(
+            logger.info(
+                "Denoising with overlap conditioning only on sigmas: %s", high_sigmas
+            )
+            _, new_latents = SamplerCustomAdvanced().sample(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -532,8 +545,8 @@ class LTXVExtendSampler:
         guider.set_conds(positive, negative)
 
         # Denoise the latent video
-        print("Denoising with full conditioning on sigmas: ", middle_sigmas)
-        (output_latents, denoised_output_latents) = SamplerCustomAdvanced().sample(
+        logger.info("Denoising with full conditioning on sigmas: %s", middle_sigmas)
+        output_latents, denoised_output_latents = SamplerCustomAdvanced().sample(
             noise=noise,
             guider=guider,
             sampler=sampler,
@@ -563,7 +576,7 @@ class LTXVExtendSampler:
             )
 
             if optional_cond_images is not None:
-                print("Adding conditioning on keyframes")
+                logger.info("Adding conditioning on keyframes")
                 for cond_image, cond_idx in zip(
                     optional_cond_images, optional_cond_indices
                 ):
@@ -587,11 +600,11 @@ class LTXVExtendSampler:
                     )
 
             guider.set_conds(positive, negative)
-            print(
-                "Denoising with overlap + keyframes conditioning only on sigmas: ",
+            logger.info(
+                "Denoising with overlap + keyframes conditioning only on sigmas: %s",
                 low_sigmas,
             )
-            (_, denoised_output_latents) = SamplerCustomAdvanced().sample(
+            _, denoised_output_latents = SamplerCustomAdvanced().sample(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -671,7 +684,7 @@ class LTXVInContextSampler:
     RETURN_TYPES = ("LATENT", "CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("denoised_video", "positive", "negative")
     FUNCTION = "sample"
-    CATEGORY = "sampling"
+    CATEGORY = "Lightricks/sampling"
 
     def sample(
         self,
@@ -701,9 +714,13 @@ class LTXVInContextSampler:
         if optional_cond_indices is not None and optional_cond_images is not None:
             optional_cond_indices = optional_cond_indices.split(",")
             optional_cond_indices = [int(i) for i in optional_cond_indices]
-            assert len(optional_cond_indices) == len(
-                optional_cond_images
-            ), "Number of optional cond images must match number of optional cond indices"
+            if len(optional_cond_indices) != len(optional_cond_images):
+                raise ValueError(
+                    f"optional_cond_indices lists {len(optional_cond_indices)} "
+                    f"position(s) but {len(optional_cond_images)} conditioning "
+                    f"image(s) were supplied. Provide one comma-separated frame "
+                    f"index per image."
+                )
 
         positive, negative = _get_raw_conds_from_guider(guider)
 
@@ -731,11 +748,11 @@ class LTXVInContextSampler:
         )
 
         if len(high_sigmas) > 1:
-            print(
-                "Denoising with keyframes only [if available] on sigmas: ",
+            logger.info(
+                "Denoising with keyframes only [if available] on sigmas: %s",
                 high_sigmas,
             )
-            (_, new_latents) = SamplerCustomAdvanced().sample(
+            _, new_latents = SamplerCustomAdvanced().sample(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -751,7 +768,7 @@ class LTXVInContextSampler:
         else:
             skip_one_guiding_latent = False
 
-        print("Adding conditioning on guiding latents")
+        logger.info("Adding conditioning on guiding latents")
         (
             positive,
             negative,
@@ -766,7 +783,7 @@ class LTXVInContextSampler:
             strength=guiding_strength,
         )
         if optional_cond_images is not None:
-            print("Adding conditioning on keyframes", optional_cond_indices)
+            logger.info("Adding conditioning on keyframes %s", optional_cond_indices)
             for cond_image, cond_idx in zip(
                 optional_cond_images, optional_cond_indices
             ):
@@ -805,8 +822,8 @@ class LTXVInContextSampler:
         guider.set_conds(positive, negative)
 
         # Denoise the latent video
-        print("Denoising with full conditioning on sigmas: ", middle_sigmas)
-        (_, denoised_output_latents) = SamplerCustomAdvanced().sample(
+        logger.info("Denoising with full conditioning on sigmas: %s", middle_sigmas)
+        _, denoised_output_latents = SamplerCustomAdvanced().sample(
             noise=noise,
             guider=guider,
             sampler=sampler,
@@ -823,11 +840,11 @@ class LTXVInContextSampler:
 
         if len(low_sigmas) > 1:
             guider.set_conds(positive, negative)
-            print(
-                "Denoising with keyframes only [if available] conditioning on sigmas: ",
+            logger.info(
+                "Denoising with keyframes only [if available] conditioning on sigmas: %s",
                 low_sigmas,
             )
-            (_, denoised_output_latents) = SamplerCustomAdvanced().sample(
+            _, denoised_output_latents = SamplerCustomAdvanced().sample(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -861,7 +878,7 @@ class LinearOverlapLatentTransition:
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "process"
 
-    CATEGORY = "Lightricks/latent"
+    CATEGORY = "Lightricks/latents"
 
     def get_subbatch(self, samples):
         s = samples.copy()
@@ -918,7 +935,7 @@ class LTXVNormalizingSampler(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="LTXVNormalizingSampler",
-            category="utility",
+            category="Lightricks/sampling",
             inputs=[
                 io.Noise.Input("noise"),
                 io.Guider.Input("guider"),
@@ -989,7 +1006,7 @@ class LTXVNormalizingSampler(io.ComfyNode):
             )
             if v != 1.0 or a != 1.0
         ]
-        print("Sampling split indices: %s" % sampling_split_indices, flush=True)
+        logger.info("Sampling split indices: %s", sampling_split_indices)
 
         # Split sigmas according to sampling_split_indices
         def split_by_indices(arr, indices):
@@ -1011,13 +1028,13 @@ class LTXVNormalizingSampler(io.ComfyNode):
             return chunks
 
         sigmas_chunks = split_by_indices(sigmas, sampling_split_indices)
-        print("Sigmas chunks: %s" % sigmas_chunks, flush=True)
+        logger.info("Sigmas chunks: %s", sigmas_chunks)
 
         i = 0
         for sigmas_chunk in sigmas_chunks:
             i += len(sigmas_chunk) - 1
-            print("Sampling with sigmas %s" % (sigmas_chunk), flush=True)
-            (_, latent_image) = SamplerCustomAdvanced().execute(
+            logger.info("Sampling with sigmas %s", sigmas_chunk)
+            _, latent_image = SamplerCustomAdvanced().execute(
                 noise=noise,
                 guider=guider,
                 sampler=sampler,
@@ -1038,14 +1055,11 @@ class LTXVNormalizingSampler(io.ComfyNode):
                         video_samples, audio_samples
                     )
                 )
-                print(
-                    "After %d steps, the latent image was normalized by %f and %f"
-                    % (
-                        i,
-                        video_normalization_factors[i - 1],
-                        audio_normalization_factors[i - 1],
-                    ),
-                    flush=True,
+                logger.info(
+                    "After %d steps, the latent image was normalized by %f and %f",
+                    i,
+                    video_normalization_factors[i - 1],
+                    audio_normalization_factors[i - 1],
                 )
 
         return io.NodeOutput(latent_image)

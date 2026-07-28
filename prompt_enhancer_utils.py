@@ -57,7 +57,13 @@ Output the enhanced prompt only.
 
 def tensor_to_pil(tensor):
     # Ensure tensor is in range [-1, 1]
-    assert tensor.min() >= -1 and tensor.max() <= 1
+    low, high = tensor.min().item(), tensor.max().item()
+    if low < -1 or high > 1:
+        raise ValueError(
+            f"Image tensor for the prompt enhancer must be in the range [-1, 1], "
+            f"got [{low:.4f}, {high:.4f}]. This usually means an image was passed "
+            f"in ComfyUI's [0, 1] range without being rescaled."
+        )
 
     # Convert from [-1, 1] to [0, 1]
     tensor = (tensor + 1) / 2
@@ -103,9 +109,10 @@ def generate_cinematic_prompt(
             first_frame_conditioning_item
         )
 
-        assert len(first_frames) == len(
-            prompts
-        ), "Number of conditioning frames must match number of prompts"
+        if not (len(first_frames) == len(prompts)):
+            raise ValueError(
+                "Number of conditioning frames must match number of prompts"
+            )
 
         prompts = _generate_i2v_prompt(
             image_caption_model,
@@ -122,7 +129,7 @@ def generate_cinematic_prompt(
 
 
 def _get_first_frames_from_conditioning_item(
-    conditioning_item: Tuple[torch.Tensor, int, float]
+    conditioning_item: Tuple[torch.Tensor, int, float],
 ) -> List[Image.Image]:
     frames_tensor = conditioning_item[0]
     # tensor shape: [batch_size, 3, num_frames, height, width], take first frame from each sample
@@ -253,6 +260,6 @@ def _generate_and_decode_prompts(
 
     decoded_prompts = [p + f" {_get_random_scene_type()}." for p in decoded_prompts]
 
-    print(decoded_prompts)
+    logger.info(decoded_prompts)
 
     return decoded_prompts

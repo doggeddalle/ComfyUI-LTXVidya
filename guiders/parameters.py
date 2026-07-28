@@ -132,7 +132,7 @@ class GuiderParametersNode:
     RETURN_TYPES = ("GUIDER_PARAMETERS",)
 
     FUNCTION = "get_parameters"
-    CATEGORY = "lightricks/LTXV"
+    CATEGORY = "Lightricks/guidance"
 
     def get_parameters(
         self,

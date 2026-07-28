@@ -88,7 +88,7 @@ class LTXVAddGuideAdvanced:
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
 
-    CATEGORY = "conditioning/video_models"
+    CATEGORY = "Lightricks/conditioning"
     FUNCTION = "generate"
 
     DESCRIPTION = (
@@ -210,7 +210,7 @@ class LTXVImgToVideoAdvanced:
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
 
-    CATEGORY = "conditioning/video_models"
+    CATEGORY = "Lightricks/conditioning"
     FUNCTION = "generate"
 
     DESCRIPTION = (
@@ -357,7 +357,7 @@ class LTXVAddGuideAdvancedAttention:
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
 
-    CATEGORY = "conditioning/video_models"
+    CATEGORY = "Lightricks/conditioning"
     FUNCTION = "generate"
 
     DESCRIPTION = (
@@ -412,9 +412,10 @@ class LTXVAddGuideAdvancedAttention:
         frame_idx, latent_idx = nodes_lt.LTXVAddGuide.get_latent_index(
             positive, latent_length, len(image), frame_idx, scale_factors
         )
-        assert (
-            latent_idx + t.shape[2] <= latent_length
-        ), "Conditioning frames exceed the length of the latent sequence."
+        if not (latent_idx + t.shape[2] <= latent_length):
+            raise ValueError(
+                "Conditioning frames exceed the length of the latent sequence."
+            )
 
         # Append keyframe
         positive, negative, latent_image, noise_mask = (
