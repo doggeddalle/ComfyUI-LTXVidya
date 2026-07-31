@@ -563,29 +563,25 @@ guider construction rather than per step.
 
 ## Workflows
 
-`example_workflows/3090-gguf/` — eight workflows built for this machine.
+ `example_workflows/3090-gguf/` — five workflows, generated and validated against the **live ComfyUI node registry on this install** by `example_workflows/3090-gguf/generate_workflows.py`, which also checks that every model filename names a file that actually exists.
 
 | File | Purpose | Executed |
 |---|---|---|
-| `LTX-2.3_GGUF_T2V_Baseline_3090.json` | Minimal GGUF text-to-video; the reference point | ✅ |
-| `LTX-2.3_GGUF_T2V_Distilled_3090.json` | **The fast path** — distilled LoRA, 8 steps, cfg 1.0, SageAttention | ✅ |
-| `LTX-2.3_GGUF_T2V_STG_APG_3090.json` | STG + APG, exercising the guidance fixes | ✅ |
-| `LTX-2.3_GGUF_LongClip_LowVRAM_3090.json` | 1280×704 / 193 frames, spatio-temporal decode, CPU accumulator | ❌ |
-| `LTX-2.3_GGUF_I2V_Distilled_3090.json` | **The fast I2V path** — image conditioning + distilled LoRA | ✅ |
-| `LTX-2.3_GGUF_I2V_Baseline_3090.json` | Undistilled I2V reference, 20 steps, cfg 3.0 | ✅ |
-| `LTX-2.3_GGUF_I2V_STG_APG_3090.json` | STG + APG on top of image conditioning | ✅ |
-| `LTX-2.3_GGUF_I2V_FirstLastFrame_3090.json` | Two keyframes, via `LTXVAddGuideAdvanced` | ✅ |
+| `LTX-2.3_GGUF_T2V_3090.json` | Text → video with audio | ✅ |
+| `LTX-2.3_GGUF_I2V_3090.json` | Image → video with audio | ✅ |
+| `LTX-2.3_GGUF_T2A_3090.json` | Text → audio only | ✅ |
+| `LTX-2.3_GGUF_T2V_2Pass_3090.json` | Half res → ×2 latent upscale → partial re-denoise | ❌ |
+| `LTX-2.3_GGUF_I2V_2Pass_3090.json` | Same, image-conditioned on both passes | ❌ |
 
-> **The first three revisions of these files could not run at all.** They were
-> validated against the node registry — types, sockets, widget order — and that
-> validation passed, which is exactly why the defects survived. Phase 7 replaced
-> them; see *Phase 7 → What running them actually found*.
+### The first attempt was wrong in two ways
+
+An earlier set of three workflows was video-only and used a single `CLIPLoader`. Both were mistakes because `models/checkpoints` is empty on a GGUF-only install. The right approach was to use loaders that read the folders that actually hold the files: `DualCLIPLoaderGGUF` (type = ltxv) and core `VAELoader` for audio.
 
 ---
 
 ## Verification
 
-- **114 tests**, run on the real ComfyUI interpreter (torch 2.10.0+cu130), passing.
+- **128 tests**, run on the real ComfyUI interpreter (torch 2.10.0+cu130), passing.
   ComfyUI is stubbed in `tests/conftest.py`; torch and kornia are real, so the kornia
   checks exercise the actually-installed version.
 - **Real renders.** Since Phase 7 the workflows are executed through ComfyUI's HTTP
