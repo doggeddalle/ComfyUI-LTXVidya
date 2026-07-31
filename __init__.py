@@ -1,5 +1,6 @@
 import logging
 
+from .attention_backend import LTXVAttentionBackend
 from .audio_only import LTXVAudioOnlyEmptyVideoLatent, LTXVAudioOnlyModel
 from .conditioning_loader import LTXVLoadConditioning
 from .conditioning_saver import LTXVSaveConditioning
@@ -122,6 +123,7 @@ NODE_CLASS_MAPPINGS = {
     "LTXVHDRDecodePostprocess": LTXVHDRDecodePostprocess,
     "LTXVAudioOnlyModel": LTXVAudioOnlyModel,
     "LTXVAudioOnlyEmptyVideoLatent": LTXVAudioOnlyEmptyVideoLatent,
+    "LTXVAttentionBackend": LTXVAttentionBackend,
 }
 
 # Consistent display names between static and dynamic node mappings in nodes_registry.py,

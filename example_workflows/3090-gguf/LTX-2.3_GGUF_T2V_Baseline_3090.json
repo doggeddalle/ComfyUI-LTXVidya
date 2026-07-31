@@ -1,763 +1,952 @@
 {
- "id": "28df4ce6-f1cf-4a66-9946-bf44620fc099",
- "revision": 0,
- "last_node_id": 16,
- "last_link_id": 17,
- "nodes": [
-  {
-   "id": 1,
-   "type": "UnetLoaderGGUF",
-   "pos": [
-    0.0,
-    0.0
-   ],
-   "size": [
-    400.0,
-    60.0
-   ],
-   "flags": {},
-   "order": 0,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
+  "id": "cb571f3f-b3c8-494b-8f7c-5d247e8639ea",
+  "revision": 0,
+  "last_node_id": 99,
+  "last_link_id": 21,
+  "nodes": [
     {
-     "name": "MODEL",
-     "type": "MODEL",
-     "links": [
-      6
-     ]
+      "id": 1,
+      "type": "UnetLoaderGGUF",
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "size": [
+        400.0,
+        60.0
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "UnetLoaderGGUF"
+      },
+      "widgets_values": [
+        "ltx-2.3-22b-dev-Q4_0.gguf"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "DualCLIPLoader",
+      "pos": [
+        0.0,
+        370.0
+      ],
+      "size": [
+        400.0,
+        140.0
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            1,
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "DualCLIPLoader"
+      },
+      "widgets_values": [
+        "gemma-3-12b-it-ablit-norms-biproj-fp8mixed.safetensors",
+        "ltx-2-3-22b-text_encoder.safetensors",
+        "ltxv",
+        "default"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        0.0,
+        540.0
+      ],
+      "size": [
+        400.0,
+        60.0
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "LTX23_video_vae_bf16.safetensors"
+      ]
+    },
+    {
+      "id": 16,
+      "type": "VAELoader",
+      "pos": [
+        0.0,
+        630.0
+      ],
+      "size": [
+        400.0,
+        60.0
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "LTX23_audio_vae_bf16.safetensors"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "CLIPTextEncode",
+      "pos": [
+        440.0,
+        0.0
+      ],
+      "size": [
+        420.0,
+        200.0
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "A slow cinematic dolly shot through a rain-soaked neon alley at night, reflections shimmering on wet asphalt, volumetric haze, shallow depth of field, photorealistic, 35mm film grain"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "CLIPTextEncode",
+      "pos": [
+        440.0,
+        230.0
+      ],
+      "size": [
+        420.0,
+        140.0
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "worst quality, inconsistent motion, blurry, jittery, distorted"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "LTXVConditioning",
+      "pos": [
+        440.0,
+        400.0
+      ],
+      "size": [
+        420.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 3
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXVConditioning"
+      },
+      "widgets_values": [
+        24.0
+      ]
+    },
+    {
+      "id": 7,
+      "type": "EmptyLTXVLatentVideo",
+      "pos": [
+        440.0,
+        520.0
+      ],
+      "size": [
+        420.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            6
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLTXVLatentVideo"
+      },
+      "widgets_values": [
+        960,
+        544,
+        121,
+        1
+      ]
+    },
+    {
+      "id": 17,
+      "type": "LTXVEmptyLatentAudio",
+      "pos": [
+        440.0,
+        680.0
+      ],
+      "size": [
+        420.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Latent",
+          "type": "LATENT",
+          "links": [
+            7
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXVEmptyLatentAudio"
+      },
+      "widgets_values": [
+        121,
+        24,
+        1
+      ]
+    },
+    {
+      "id": 18,
+      "type": "LTXVConcatAVLatent",
+      "pos": [
+        440.0,
+        840.0
+      ],
+      "size": [
+        420.0,
+        70.0
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video_latent",
+          "type": "LATENT",
+          "link": 6
+        },
+        {
+          "name": "audio_latent",
+          "type": "LATENT",
+          "link": 7
+        }
+      ],
+      "outputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            8,
+            16
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXVConcatAVLatent"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 8,
+      "type": "LTXVScheduler",
+      "pos": [
+        900.0,
+        0.0
+      ],
+      "size": [
+        380.0,
+        190.0
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 8
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXVScheduler"
+      },
+      "widgets_values": [
+        20,
+        2.05,
+        0.95,
+        true,
+        0.1
+      ]
+    },
+    {
+      "id": 9,
+      "type": "KSamplerSelect",
+      "pos": [
+        900.0,
+        190.0
+      ],
+      "size": [
+        380.0,
+        60.0
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            14
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KSamplerSelect"
+      },
+      "widgets_values": [
+        "euler"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "RandomNoise",
+      "pos": [
+        900.0,
+        280.0
+      ],
+      "size": [
+        380.0,
+        90.0
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "NOISE",
+          "type": "NOISE",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RandomNoise"
+      },
+      "widgets_values": [
+        42,
+        "fixed"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "CFGGuider",
+      "pos": [
+        900.0,
+        400.0
+      ],
+      "size": [
+        380.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 9
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 10
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CFGGuider"
+      },
+      "widgets_values": [
+        3.0
+      ]
+    },
+    {
+      "id": 12,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        1360.0,
+        0.0
+      ],
+      "size": [
+        380.0,
+        130.0
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 12
+        },
+        {
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 13
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 14
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 15
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            17
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SamplerCustomAdvanced"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 22,
+      "type": "LTXVSeparateAVLatent",
+      "pos": [
+        1360.0,
+        170.0
+      ],
+      "size": [
+        380.0,
+        70.0
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "av_latent",
+          "type": "LATENT",
+          "link": 17
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video_latent",
+          "type": "LATENT",
+          "links": [
+            19
+          ]
+        },
+        {
+          "name": "audio_latent",
+          "type": "LATENT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXVSeparateAVLatent"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "LTXVTiledVAEDecode",
+      "pos": [
+        1360.0,
+        270.0
+      ],
+      "size": [
+        380.0,
+        200.0
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 18
+        },
+        {
+          "name": "latents",
+          "type": "LATENT",
+          "link": 19
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            20
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LTXVTiledVAEDecode"
+      },
+      "widgets_values": [
+        2,
+        2,
+        6,
+        false,
+        "auto",
+        "bfloat16"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "CreateVideo",
+      "pos": [
+        1820.0,
+        0.0
+      ],
+      "size": [
+        380.0,
+        80.0
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 20
+        }
+      ],
+      "outputs": [
+        {
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            21
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CreateVideo"
+      },
+      "widgets_values": [
+        24.0,
+        8
+      ]
+    },
+    {
+      "id": 15,
+      "type": "SaveVideo",
+      "pos": [
+        1820.0,
+        120.0
+      ],
+      "size": [
+        380.0,
+        110.0
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SaveVideo"
+      },
+      "widgets_values": [
+        "LTXV23/baseline",
+        "auto",
+        "auto"
+      ]
+    },
+    {
+      "id": 99,
+      "type": "MarkdownNote",
+      "pos": [
+        1820.0,
+        280.0
+      ],
+      "size": [
+        560.0,
+        620.0
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Read me",
+      "properties": {},
+      "widgets_values": [
+        "## Why this graph looks like it does\n\nTwo things in the earlier version of these workflows could never have run, and\nboth were found by actually executing them:\n\n**1. The text encoder.** `ltx-2-3-22b-text_encoder.safetensors` is *not* a text\nencoder -- it holds four tensors, `text_embedding_projection.*`. LTX-2.3's text\nencoder is **Gemma-3-12B**, and the projection aggregates its 49 hidden states\n(49 x 3840 = 188160). `comfy/sd.py` only takes the LTX-2.3 Gemma branch\n(`ltxav_te` + `LTXAVGemmaTokenizer`, sd.py:1809) when handed **exactly two**\nstate dicts. A single-file `CLIPLoader(type=ltxv)` falls into the LTX-0.9 **T5**\nbranch instead and dies with `Cannot copy out of meta tensor`.\n\nSo: **`DualCLIPLoader`, type `ltxv`**, Gemma first (sd.py:1812 reads the\ntokenizer from `clip_data[0][\"spiece_model\"]`), projection second. Both live in\n`models/text_encoders`, so nothing is needed in `models/checkpoints`.\n\n**2. The audio branch is not optional.** `ltx-2.3-22b-dev` is an **AV** DiT.\n`av_model.py` builds audio RoPE unconditionally, so a video-only latent gives it\nzero audio tokens and it crashes in `freqs_cis_matrix`. Every upstream 2.3\nworkflow concatenates an audio latent for exactly this reason.\n`LTXVAudioVAELoader` lists from the (empty) `checkpoints` folder, but core\n`VAELoader` reads `models/vae` -- where `LTX23_audio_vae_bf16.safetensors` is.\nThe audio half is split back off and discarded here.\n\n## Measured on an RTX 3090 (Q4_0, 960x544x121, 20 steps, cfg 3.0)\n\n| | |\n|---|---|\n| wall clock | 230.8 s (11.04 s/step) |\n| peak VRAM | 20.9 GB of 24 GB |\n\nThat is tight. If it will not fit, see the tuning list in the folder README.\n\n## Want it 2.45x faster, and better looking?\n\nUse **`LTX-2.3_GGUF_T2V_Distilled_3090.json`** instead: a distilled LoRA at\n8 steps and cfg 1.0 renders this same clip in **94.3 s**, sharper than this\ngraph does in 230.8 s.\n\nAdding **LTXV Attention Backend** -> `sage` to *this* graph is worth only ~5%\n(230.8 -> 218.9 s). The step count is what matters, not the kernel.\n"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
     }
-   ],
-   "properties": {
-    "Node name for S&R": "UnetLoaderGGUF"
-   },
-   "widgets_values": [
-    "ltx-2.3-22b-dev-Q4_0.gguf"
-   ]
-  },
-  {
-   "id": 2,
-   "type": "CLIPLoader",
-   "pos": [
-    0.0,
-    100.0
-   ],
-   "size": [
-    400.0,
-    110.0
-   ],
-   "flags": {},
-   "order": 1,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
-    {
-     "name": "CLIP",
-     "type": "CLIP",
-     "links": [
+  ],
+  "links": [
+    [
       1,
-      2
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "CLIPLoader"
-   },
-   "widgets_values": [
-    "ltx-2-3-22b-text_encoder.safetensors",
-    "ltxv",
-    "default"
-   ]
-  },
-  {
-   "id": 3,
-   "type": "VAELoader",
-   "pos": [
-    0.0,
-    250.0
-   ],
-   "size": [
-    400.0,
-    60.0
-   ],
-   "flags": {},
-   "order": 2,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
-    {
-     "name": "VAE",
-     "type": "VAE",
-     "links": [
-      14
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "VAELoader"
-   },
-   "widgets_values": [
-    "LTX23_video_vae_bf16.safetensors"
-   ]
-  },
-  {
-   "id": 4,
-   "type": "CLIPTextEncode",
-   "pos": [
-    440.0,
-    0.0
-   ],
-   "size": [
-    400.0,
-    200.0
-   ],
-   "flags": {},
-   "order": 3,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "clip",
-     "type": "CLIP",
-     "link": 1
-    }
-   ],
-   "outputs": [
-    {
-     "name": "CONDITIONING",
-     "type": "CONDITIONING",
-     "links": [
-      3
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "CLIPTextEncode"
-   },
-   "widgets_values": [
-    "A slow cinematic dolly shot through a rain-soaked neon alley at night, reflections shimmering on wet asphalt, volumetric haze, shallow depth of field, photorealistic, 35mm film grain"
-   ]
-  },
-  {
-   "id": 5,
-   "type": "CLIPTextEncode",
-   "pos": [
-    440.0,
-    230.0
-   ],
-   "size": [
-    400.0,
-    140.0
-   ],
-   "flags": {},
-   "order": 4,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "clip",
-     "type": "CLIP",
-     "link": 2
-    }
-   ],
-   "outputs": [
-    {
-     "name": "CONDITIONING",
-     "type": "CONDITIONING",
-     "links": [
-      4
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "CLIPTextEncode"
-   },
-   "widgets_values": [
-    "worst quality, inconsistent motion, blurry, jittery, distorted"
-   ]
-  },
-  {
-   "id": 6,
-   "type": "LTXVConditioning",
-   "pos": [
-    880.0,
-    0.0
-   ],
-   "size": [
-    300.0,
-    100.0
-   ],
-   "flags": {},
-   "order": 5,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "positive",
-     "type": "CONDITIONING",
-     "link": 3
-    },
-    {
-     "name": "negative",
-     "type": "CONDITIONING",
-     "link": 4
-    }
-   ],
-   "outputs": [
-    {
-     "name": "positive",
-     "type": "CONDITIONING",
-     "links": [
-      7
-     ]
-    },
-    {
-     "name": "negative",
-     "type": "CONDITIONING",
-     "links": [
-      8
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "LTXVConditioning"
-   },
-   "widgets_values": [
-    24.0
-   ]
-  },
-  {
-   "id": 7,
-   "type": "EmptyLTXVLatentVideo",
-   "pos": [
-    880.0,
-    150.0
-   ],
-   "size": [
-    300.0,
-    130.0
-   ],
-   "flags": {},
-   "order": 6,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
-    {
-     "name": "LATENT",
-     "type": "LATENT",
-     "links": [
+      2,
+      0,
+      4,
+      0,
+      "CLIP"
+    ],
+    [
+      2,
+      2,
+      0,
       5,
-      13
-     ]
+      0,
+      "CLIP"
+    ],
+    [
+      3,
+      4,
+      0,
+      6,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      4,
+      5,
+      0,
+      6,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      5,
+      16,
+      0,
+      17,
+      0,
+      "VAE"
+    ],
+    [
+      6,
+      7,
+      0,
+      18,
+      0,
+      "LATENT"
+    ],
+    [
+      7,
+      17,
+      0,
+      18,
+      1,
+      "LATENT"
+    ],
+    [
+      8,
+      18,
+      0,
+      8,
+      0,
+      "LATENT"
+    ],
+    [
+      9,
+      1,
+      0,
+      11,
+      0,
+      "MODEL"
+    ],
+    [
+      10,
+      6,
+      0,
+      11,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      11,
+      6,
+      1,
+      11,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      12,
+      10,
+      0,
+      12,
+      0,
+      "NOISE"
+    ],
+    [
+      13,
+      11,
+      0,
+      12,
+      1,
+      "GUIDER"
+    ],
+    [
+      14,
+      9,
+      0,
+      12,
+      2,
+      "SAMPLER"
+    ],
+    [
+      15,
+      8,
+      0,
+      12,
+      3,
+      "SIGMAS"
+    ],
+    [
+      16,
+      18,
+      0,
+      12,
+      4,
+      "LATENT"
+    ],
+    [
+      17,
+      12,
+      0,
+      22,
+      0,
+      "LATENT"
+    ],
+    [
+      18,
+      3,
+      0,
+      13,
+      0,
+      "VAE"
+    ],
+    [
+      19,
+      22,
+      0,
+      13,
+      1,
+      "LATENT"
+    ],
+    [
+      20,
+      13,
+      0,
+      14,
+      0,
+      "IMAGE"
+    ],
+    [
+      21,
+      14,
+      0,
+      15,
+      0,
+      "VIDEO"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.7,
+      "offset": [
+        0,
+        0
+      ]
     }
-   ],
-   "properties": {
-    "Node name for S&R": "EmptyLTXVLatentVideo"
-   },
-   "widgets_values": [
-    960,
-    544,
-    121,
-    1
-   ]
   },
-  {
-   "id": 8,
-   "type": "LTXVScheduler",
-   "pos": [
-    880.0,
-    320.0
-   ],
-   "size": [
-    300.0,
-    160.0
-   ],
-   "flags": {},
-   "order": 7,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "latent",
-     "type": "LATENT",
-     "link": 5
-    }
-   ],
-   "outputs": [
-    {
-     "name": "SIGMAS",
-     "type": "SIGMAS",
-     "links": [
-      12
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "LTXVScheduler"
-   },
-   "widgets_values": [
-    20,
-    2.05,
-    0.95,
-    true,
-    0.1
-   ]
-  },
-  {
-   "id": 9,
-   "type": "KSamplerSelect",
-   "pos": [
-    880.0,
-    520.0
-   ],
-   "size": [
-    300.0,
-    60.0
-   ],
-   "flags": {},
-   "order": 8,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
-    {
-     "name": "SAMPLER",
-     "type": "SAMPLER",
-     "links": [
-      11
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "KSamplerSelect"
-   },
-   "widgets_values": [
-    "euler"
-   ]
-  },
-  {
-   "id": 10,
-   "type": "RandomNoise",
-   "pos": [
-    880.0,
-    620.0
-   ],
-   "size": [
-    300.0,
-    90.0
-   ],
-   "flags": {},
-   "order": 9,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [
-    {
-     "name": "NOISE",
-     "type": "NOISE",
-     "links": [
-      9
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "RandomNoise"
-   },
-   "widgets_values": [
-    42,
-    "fixed"
-   ]
-  },
-  {
-   "id": 11,
-   "type": "CFGGuider",
-   "pos": [
-    1300.0,
-    0.0
-   ],
-   "size": [
-    300.0,
-    120.0
-   ],
-   "flags": {},
-   "order": 10,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "model",
-     "type": "MODEL",
-     "link": 6
-    },
-    {
-     "name": "positive",
-     "type": "CONDITIONING",
-     "link": 7
-    },
-    {
-     "name": "negative",
-     "type": "CONDITIONING",
-     "link": 8
-    }
-   ],
-   "outputs": [
-    {
-     "name": "GUIDER",
-     "type": "GUIDER",
-     "links": [
-      10
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "CFGGuider"
-   },
-   "widgets_values": [
-    3.0
-   ]
-  },
-  {
-   "id": 12,
-   "type": "SamplerCustomAdvanced",
-   "pos": [
-    1700.0,
-    0.0
-   ],
-   "size": [
-    300.0,
-    130.0
-   ],
-   "flags": {},
-   "order": 11,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "noise",
-     "type": "NOISE",
-     "link": 9
-    },
-    {
-     "name": "guider",
-     "type": "GUIDER",
-     "link": 10
-    },
-    {
-     "name": "sampler",
-     "type": "SAMPLER",
-     "link": 11
-    },
-    {
-     "name": "sigmas",
-     "type": "SIGMAS",
-     "link": 12
-    },
-    {
-     "name": "latent_image",
-     "type": "LATENT",
-     "link": 13
-    }
-   ],
-   "outputs": [
-    {
-     "name": "output",
-     "type": "LATENT",
-     "links": [
-      15
-     ]
-    },
-    {
-     "name": "denoised_output",
-     "type": "LATENT",
-     "links": []
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "SamplerCustomAdvanced"
-   },
-   "widgets_values": []
-  },
-  {
-   "id": 13,
-   "type": "LTXVTiledVAEDecode",
-   "pos": [
-    2100.0,
-    0.0
-   ],
-   "size": [
-    340.0,
-    200.0
-   ],
-   "flags": {},
-   "order": 12,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "vae",
-     "type": "VAE",
-     "link": 14
-    },
-    {
-     "name": "latents",
-     "type": "LATENT",
-     "link": 15
-    }
-   ],
-   "outputs": [
-    {
-     "name": "image",
-     "type": "IMAGE",
-     "links": [
-      16
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "LTXVTiledVAEDecode"
-   },
-   "widgets_values": [
-    2,
-    2,
-    6,
-    false,
-    "auto",
-    "bfloat16"
-   ]
-  },
-  {
-   "id": 14,
-   "type": "CreateVideo",
-   "pos": [
-    2500.0,
-    0.0
-   ],
-   "size": [
-    300.0,
-    110.0
-   ],
-   "flags": {},
-   "order": 13,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "images",
-     "type": "IMAGE",
-     "link": 16
-    }
-   ],
-   "outputs": [
-    {
-     "name": "VIDEO",
-     "type": "VIDEO",
-     "links": [
-      17
-     ]
-    }
-   ],
-   "properties": {
-    "Node name for S&R": "CreateVideo"
-   },
-   "widgets_values": [
-    24.0,
-    8
-   ]
-  },
-  {
-   "id": 15,
-   "type": "SaveVideo",
-   "pos": [
-    2840.0,
-    0.0
-   ],
-   "size": [
-    360.0,
-    130.0
-   ],
-   "flags": {},
-   "order": 14,
-   "mode": 0,
-   "inputs": [
-    {
-     "name": "video",
-     "type": "VIDEO",
-     "link": 17
-    }
-   ],
-   "outputs": [],
-   "properties": {
-    "Node name for S&R": "SaveVideo"
-   },
-   "widgets_values": [
-    "LTXV23/baseline",
-    "auto",
-    "auto"
-   ]
-  },
-  {
-   "id": 16,
-   "type": "MarkdownNote",
-   "pos": [
-    0.0,
-    700.0
-   ],
-   "size": [
-    520.0,
-    320.0
-   ],
-   "flags": {},
-   "order": 15,
-   "mode": 0,
-   "inputs": [],
-   "outputs": [],
-   "properties": {
-    "Node name for S&R": "MarkdownNote"
-   },
-   "widgets_values": [
-    "## LTX-2.3 GGUF - baseline T2V (RTX 3090)\n\nVerified against this machine's node registry.\n\n- **Model**: `UnetLoaderGGUF` -> Q4_0 (11.8 GB).\n- **Text encoder**: core `CLIPLoader` with type `ltxv`. The LTXV pack's\n  Gemma/AV loaders list from `models/checkpoints`, which is empty here,\n  so they cannot be configured on this install.\n- **Decode**: `working_dtype=bfloat16` needs the updated node pack\n  (commit `9eceeda`+). On an older pack pick `auto`.\n\n### Tuning for VRAM\nRaise `horizontal_tiles`/`vertical_tiles` or set `working_device=cpu`\nto keep the full-length output accumulator out of VRAM."
-   ],
-   "title": "Read me"
-  }
- ],
- "links": [
-  [
-   1,
-   2,
-   0,
-   4,
-   0,
-   "CLIP"
-  ],
-  [
-   2,
-   2,
-   0,
-   5,
-   0,
-   "CLIP"
-  ],
-  [
-   3,
-   4,
-   0,
-   6,
-   0,
-   "CONDITIONING"
-  ],
-  [
-   4,
-   5,
-   0,
-   6,
-   1,
-   "CONDITIONING"
-  ],
-  [
-   5,
-   7,
-   0,
-   8,
-   0,
-   "LATENT"
-  ],
-  [
-   6,
-   1,
-   0,
-   11,
-   0,
-   "MODEL"
-  ],
-  [
-   7,
-   6,
-   0,
-   11,
-   1,
-   "CONDITIONING"
-  ],
-  [
-   8,
-   6,
-   1,
-   11,
-   2,
-   "CONDITIONING"
-  ],
-  [
-   9,
-   10,
-   0,
-   12,
-   0,
-   "NOISE"
-  ],
-  [
-   10,
-   11,
-   0,
-   12,
-   1,
-   "GUIDER"
-  ],
-  [
-   11,
-   9,
-   0,
-   12,
-   2,
-   "SAMPLER"
-  ],
-  [
-   12,
-   8,
-   0,
-   12,
-   3,
-   "SIGMAS"
-  ],
-  [
-   13,
-   7,
-   0,
-   12,
-   4,
-   "LATENT"
-  ],
-  [
-   14,
-   3,
-   0,
-   13,
-   0,
-   "VAE"
-  ],
-  [
-   15,
-   12,
-   0,
-   13,
-   1,
-   "LATENT"
-  ],
-  [
-   16,
-   13,
-   0,
-   14,
-   0,
-   "IMAGE"
-  ],
-  [
-   17,
-   14,
-   0,
-   15,
-   0,
-   "VIDEO"
-  ]
- ],
- "groups": [],
- "config": {},
- "extra": {
-  "ds": {
-   "scale": 0.7,
-   "offset": [
-    0,
-    0
-   ]
-  }
- },
- "version": 0.4
+  "version": 0.4
 }

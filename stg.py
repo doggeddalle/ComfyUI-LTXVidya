@@ -11,6 +11,7 @@ import comfy.samplers
 import torch
 from comfy.model_patcher import ModelPatcher
 
+from .attention_compat import warn_if_attention_bypassed
 from .nodes_registry import comfy_node
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,7 @@ class STGGuider(comfy.samplers.CFGGuider):
         )
 
         self.patch_model(model, self.stg_flag)
+        warn_if_attention_bypassed(model, "STGGuider")
 
         self.cfg = cfg
         self.stg_scale = stg_scale
@@ -403,6 +405,7 @@ class STGGuiderAdvanced(comfy.samplers.CFGGuider):
         self.eta = eta
         self.norm_threshold = norm_threshold
         STGGuider.patch_model(model, self.stg_flag)
+        warn_if_attention_bypassed(model, "STGGuiderAdvanced")
 
     def sigma_to_params_mapping(self, sigma):
         # Find the closest higher sigma value and return corresponding cfg

@@ -5,6 +5,7 @@ import torch
 from comfy.model_patcher import ModelPatcher
 from comfy.patcher_extension import CallbacksMP
 
+from ..attention_compat import warn_if_attention_bypassed
 from ..nodes_registry import comfy_node
 from ..stg import STGBlockWrapper, STGFlag
 from .parameters import GuiderParameters, Modality
@@ -33,6 +34,7 @@ class MultimodalGuider(comfy.samplers.CFGGuider):
         )
 
         self.patch_model(model, self.stg_flag)
+        warn_if_attention_bypassed(model, "MultimodalGuider")
         self.parameters = parameters
 
     def reset_current_step(self, model_patcher=None):

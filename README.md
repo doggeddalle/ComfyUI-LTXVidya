@@ -26,6 +26,22 @@ Before you begin using an LTX-2 workflow in ComfyUI, make sure you have:
   [Advanced Techniques](#advanced-techniques), and the tiled VAE decode nodes.
 * 100GB+ free disk space for models and cache
 
+### Running on 24 GB with GGUF weights
+
+This fork is tuned for that case. **[`example_workflows/3090-gguf/`](example_workflows/3090-gguf/)**
+holds four workflows measured on an RTX 3090 — including a distilled path that
+renders 960×544 / 121 frames in **94 s**, versus 231 s for the 20-step baseline.
+
+Two things that are easy to get wrong on a GGUF install, and that the README in
+that folder explains in full:
+
+* The text encoder needs **two** files through `DualCLIPLoader` (type `ltxv`) — a
+  Gemma-3-12B *and* `ltx-2-3-22b-text_encoder.safetensors`, which despite its name
+  is only the projection layer. A single-file `CLIPLoader` silently takes the
+  LTX-0.9 T5 path and fails on meta tensors.
+* `ltx-2.3-22b-dev` is an **AV** model, so the graph must concatenate an audio
+  latent even for video-only output, or it crashes building audio RoPE.
+
 
 ## Quick Start 🚀
 

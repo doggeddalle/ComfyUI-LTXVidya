@@ -8,6 +8,7 @@ Only torch and kornia are real -- that is deliberate, so the kornia
 compatibility checks exercise the actually-installed version.
 """
 
+import functools
 import sys
 import types
 
@@ -80,6 +81,64 @@ def _install_comfy_stubs():
     _module("comfy.ldm.modules").__path__ = []
     attention = _module("comfy.ldm.modules.attention")
 
+    # wrap_attn is copied verbatim from comfy/ldm/modules/attention.py. The
+    # attention-backend override rides on the exact `_inside_attn_wrapper`
+    # bookkeeping below -- an approximation here would let a recursion bug pass.
+    # tests/test_attention_backend.py AST-compares this against core when a real
+    # ComfyUI is present.
+    def wrap_attn(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            remove_attn_wrapper_key = False
+            try:
+                if "_inside_attn_wrapper" not in kwargs:
+                    transformer_options = kwargs.get("transformer_options", None)
+                    remove_attn_wrapper_key = True
+                    kwargs["_inside_attn_wrapper"] = True
+                    if transformer_options is not None:
+                        if "optimized_attention_override" in transformer_options:
+                            return transformer_options["optimized_attention_override"](
+                                func, *args, **kwargs
+                            )
+                return func(*args, **kwargs)
+            finally:
+                if remove_attn_wrapper_key:
+                    del kwargs["_inside_attn_wrapper"]
+
+        return wrapper
+
+    attention.wrap_attn = wrap_attn
+    attention.REGISTERED_ATTENTION_FUNCTIONS = {}
+
+    def register_attention_function(name, func):
+        if name not in attention.REGISTERED_ATTENTION_FUNCTIONS:
+            attention.REGISTERED_ATTENTION_FUNCTIONS[name] = func
+
+    def get_attention_function(name, default=...):
+        # Core resolves "optimized" to the *live* module global, which is what
+        # makes it unsafe inside an STG PatchAttention block. Read it the same
+        # way so that behaviour is reproducible in tests.
+        if name == "optimized":
+            return attention.optimized_attention
+        if name not in attention.REGISTERED_ATTENTION_FUNCTIONS:
+            if default is ...:
+                raise KeyError(f"Attention function {name} not found.")
+            return default
+        return attention.REGISTERED_ATTENTION_FUNCTIONS[name]
+
+    attention.register_attention_function = register_attention_function
+    attention.get_attention_function = get_attention_function
+
+    @wrap_attn
+    def attention_pytorch(q, k, v, heads, *args, **kwargs):
+        # A third sentinel value, so a test can tell "fell back to pytorch" from
+        # both "ran the default" (zeros) and "was skipped by STG" (v).
+        return torch.full_like(q, 2.0)
+
+    attention.attention_pytorch = attention_pytorch
+    register_attention_function("pytorch", attention_pytorch)
+
+    @wrap_attn
     def optimized_attention(q, k, v, heads, *args, **kwargs):
         # Distinguishable from `v` so tests can tell "ran" from "skipped".
         return torch.zeros_like(q)
